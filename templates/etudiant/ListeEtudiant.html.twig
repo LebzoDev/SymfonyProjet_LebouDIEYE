@@ -1,0 +1,60 @@
+ {% extends "base.html.twig" %} 
+
+{% block session %}
+  
+{% endblock %}
+
+{% block container %}
+  <div class="container-fluid col-8 float-left m-0" style="height: 100%;overflow: auto;">
+    <div class="card-header col-12 text-center mb-2 card-my" style="font-size: 2vw;">
+      Liste des chambres
+    </div>
+    <div class="container">
+        <div class="row col-12 float-left" style="font-size:1.2vw;font-weight:bold;">
+            <div class="col border">Matricule</div>
+            <div class="col border">Prenom</div>
+            <div class="col border">Nom</div>
+             <div class="col border">Tel</div>
+            <div class="col border">Mail</div>
+            <div class="col border">DateNaiss</div>
+        </div>
+
+        <div id="tab">
+        
+        </div>
+    </div>
+
+<div id="div_pagination">
+    <input type="hidden" id="txt_rowid" value="0">
+    <input type="hidden" id="txt_allcount" value="0">
+</div>
+</div>
+<div class="container-fluid col-4 float-right justify-content-center" style="height: 100%;background-color:#227676">
+<div class="card-header col-12 bg-white text-center mb-2 card-my">
+  Inscrire un etudiant
+  </div>
+  <button type="button" id="ajouterChambre" class="btn btn-success mt-4" style="font-size: 1.3vw;width:95%"  onclick="myFunction('/AddEtudiant')" >Appuyer pour Inscrire</button>
+ <hr style="height: 1vw;background-color:white;">
+ <div class="card-header col-12 bg-white text-center mb-2 card-my">
+  Pagination
+  </div>
+  <div class="btn-group btn-group-toggle mt-4" data-toggle="buttons">
+  <label class="btn btn-light" style="font-size: 1.3vw">
+    <input type="radio" name="precedent" value="Previous" id="but_prev" id="option1"  autocomplete="off" checked> Precedent
+  </label>
+  <label class="btn btn-secondary" style="font-size: 1.3vw">
+    <input  type="radio" name="suivant" value="Next" id="but_next" id="option3" autocomplete="off"> Suivant
+  </label>
+</div>
+
+</div>
+
+{% endblock %}
+
+{% block phpPart %}
+ 
+{% endblock %}
+
+{% block javascripts %}
+
+{% endblock %}

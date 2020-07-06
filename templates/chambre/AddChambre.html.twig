@@ -1,0 +1,76 @@
+{% extends 'base.html.twig' %}
+
+{% block container %}
+<div class="card-header col-6 text-center m-auto" style="font-size: 2vw;color:#227676;font-weight:bold;cursor:pointer" onclick="myFunction('/chambre')">
+ Retour à la liste des chambres
+  </div>
+  <br>
+<div class="champObligatoire col-8 m-auto" id="error-1" ></div>
+<div class="input-group col-10 m-auto">
+  <div class="input-group-prepend">
+    <span class="input-group-text span-size"> Numero: </span>
+  </div>
+  <input id="numero" placeholder="Generate automatically" value="" readonly="readonly" type="text" aria-label="First name" name="numero" class="form-control">
+</div>
+<br>
+<div class="champObligatoire col-8 m-auto" id="error-2"></div>
+<div class="input-group col-10 m-auto">
+  <div class="input-group-prepend">
+    <span class="input-group-text span-size">Numero Batiment:</span>
+  </div>
+  <input id="numeroBatiment" type="text" pattern="[0-9]{3}" aria-label="First name" name="numeroBatiment" class="form-control">
+</div>
+<br>
+<div class="champObligatoire col-8 m-auto" id="error-3"></div>
+<div class="input-group col-10 m-auto">
+  <div class="input-group-prepend">
+    <span class="input-group-text span-size">Type de Chambre</span>
+  </div>
+  <select class="custom-select custom-select-lg" id="type" name="type">
+  <option selected>Veuillez choisir</option>
+  <option value="individuel">Individuel</option>
+  <option value="Binome">Binome</option>
+</select>
+</div>
+<br>
+<button class="btn btn-secondary m-auto btn-lg btn-block col-6" name="creerChambre" id="creerChambre" type="submit">Valider Chambre</button>
+ {% endblock %}
+ {% block javascripts %}
+<script>
+  $(function(){
+  $('#loginForm').on('submit',function(e) {
+          //e.preventDefault();
+         // only neccessary if something above is listening to the (default-)event too
+         //e.stopPropagation();      
+      var erreur
+      var numeroBatiment = $('#numeroBatiment').val();
+      var type = $('#type').val();
+     
+      var erreur;
+      if (numeroBatiment==null  | numeroBatiment=='') {
+        $('#error-2').html('*Ce champ est obligatoire...');
+        erreur = true;
+      }
+      if ((type == "Veuillez choisir")){
+        $('#error-3').html('*Veuillez choisir un type...');
+        erreur = true;
+      }
+      if (erreur) {
+        e.preventDefault();
+        return false;
+      }
+    });
+
+      $("#numeroBatiment").keyup(function(){
+          $('#error-2').html('');
+      })
+      $("#type").click(function(){
+          $('#error-3').html('');
+      })
+      
+    })   
+</script>
+{% endblock %}
+{% block phpPart %}
+  {{ content }}
+{% endblock %}

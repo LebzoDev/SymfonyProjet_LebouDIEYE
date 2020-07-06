@@ -1,0 +1,67 @@
+.general{
+    height:100vh;
+    width:100%;
+    margin:auto;
+    background:#48D1D1;
+    padding:0%;
+    position:absolute;
+}
+.general-title{
+    width:95%;
+    margin:1vw auto;
+    height:10vh;
+    background-color:#FFFFFF;
+    color:#227676;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border:0.5vw solid #227676;
+    font-size:3vw;
+    font-weight:bold;
+}
+.row-my{
+    font-size: 2vw;
+    font-weight:bold;
+    background-color: #227676;
+    height:8vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+.col-my{
+    height:8vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+}
+.container-treatment{
+    height:65vh;
+    width:90%;
+    background-color:#FFFFFF;
+    color:black;
+    margin-top:3vh
+}
+.footer-my{
+    color:#FFFFFF;
+    background-color:#227676;
+    margin-top:2.7vh;
+    font-size:1vw
+}
+.champObligatoire{
+    color: red;
+    font-size:1vw;
+    font-weight:bold
+}
+.span-size{
+    font-size: 1.3vw;
+}
+.card-my{
+    font-size: 2vw;
+    color:#227676;
+    font-weight:bold
+}
+.input-group-my{
+    background-color: #227676;
+    color:white
+}

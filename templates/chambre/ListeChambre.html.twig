@@ -1,0 +1,68 @@
+{% extends 'base.html.twig' %}
+
+{% block session %}
+  {{ session }}
+{% endblock %}
+
+{% block container %}
+  <div class="container-fluid col-8 float-left m-0" style="height: 100%;overflow: auto;">
+    <div class="card-header col-12 text-center mb-2 card-my" style="font-size: 2vw;">
+      Liste des chambres
+    </div>
+    <div class="container">
+        <div class="row col-10 float-left" style="font-size:1.2vw;font-weight:bold;">
+            <div class="col border">Numero</div>
+            <div class="col border">Numero Batiment</div>
+            <div class="col border">Type</div>
+        </div>
+
+        {% for resultat in resultats %}
+        <div class="row col-10 float-left" style="font-size:1.2vw;">
+            <div class="col border">{{ resultat.numeroChambre }}</div>
+            <div class="col border">{{ resultat.numeroBatiment }}</div>
+            <div class="col border">{{ resultat.typeChambre }}</div>
+        </div>
+        {% endfor %}
+
+        <div id="tab">
+        
+        </div>
+    </div>
+
+<div id="div_pagination">
+    <input type="hidden" id="txt_rowid" value="0">
+    <input type="hidden" id="txt_allcount" value="0">
+</div>
+</div>
+<div class="container-fluid col-4 float-right justify-content-center" style="height: 100%;background-color:#227676">
+<div class="card-header col-12 bg-white text-center mb-2 card-my">
+  Ajaouter une chambre
+  </div>
+  <button type="button" id="ajouterChambre" class="btn btn-success mt-4" style="font-size: 1.3vw;width:95%"  onclick="myFunction('/CreateChambre')" >Apputer pour ajouter</button>
+ <hr style="height: 1vw;background-color:white;">
+ <div class="card-header col-12 bg-white text-center mb-2 card-my">
+  Pagination
+  </div>
+  <div class="btn-group btn-group-toggle mt-4" data-toggle="buttons">
+  <label class="btn btn-light" style="font-size: 1.3vw">
+    <input type="radio" name="precedent" value="Previous" id="but_prev" id="option1"  autocomplete="off" checked> Precedent
+  </label>
+  <label class="btn btn-secondary" style="font-size: 1.3vw">
+    <input  type="radio" name="suivant" value="Next" id="but_next" id="option3" autocomplete="off"> Suivant
+  </label>
+</div>
+
+<div class="navigation">
+            {{ knp_pagination_render(resultats) }}
+</div>
+</div>
+
+{% endblock %}
+
+{% block phpPart %}
+  {{ content }}
+{% endblock %}
+
+{% block javascripts %}
+<script src="js/ListerChambre.js"></script>
+{% endblock %}

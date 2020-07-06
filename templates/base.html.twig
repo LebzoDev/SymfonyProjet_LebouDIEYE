@@ -1,0 +1,63 @@
+{% block session %}
+ 
+{% endblock %}
+<!DOCTYPE html>
+<html>
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="dist/css/bootstrap.css">
+    <link rel="stylesheet" href="css/style.css">
+        <title>{% block title %}Welcome!{% endblock %}</title>
+        {% block stylesheets %}{% endblock %}
+    </head>
+    <body>
+        {% block body %}
+        {% endblock %}
+      
+      
+
+<div class="general">
+<div class="general-title">
+    UNIVERSITY ROOM'S ALLOCATION
+</div >
+<form method="POST" id="loginForm" >
+<div class="container">
+<div class="row border text-white row-my" >
+    <div class="col border border-white col-my" onclick="myFunction('/')"  id="etudiantButton" name="etudiantButton">
+     GESTION ETUDIANT
+     </div>
+    <div class="col border border-white col-my" onclick="myFunction('/chambre')" id="chambreButton" name="chambreButton">
+      GESTION CHAMBRE
+    </div>
+    <div class="col border border-white col-my" onclick="myFunction('/allocation')">GESTION ALLOCATION</div>
+</div>
+</div>
+
+<div class="container container-treatment" id="conteneur">
+  {% block container %}
+
+    {% endblock %}
+</div>
+</form>
+{% block phpPart %}
+    
+  {% endblock %}  
+<footer class="card-footer text-center font-weight-bold footer-my" >
+    2020 COPYRIGHT @ NMSD LND BINOME G2T3
+</footer>
+</div>
+
+<script src="js/jquery.js"></script>
+<script>
+function myFunction($chemin) {
+  location.replace($chemin);
+}
+</script>
+ {% block javascripts %}
+<!--script src="js/ValidationChambre.js"  id="ValidationChambre"></script-->
+<!--script src="js/ListerChambre.js"></-script-->
+{% endblock %}
+  
+</body>
+</html>
