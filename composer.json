@@ -18,6 +18,7 @@
         "symfony/yaml": "5.1.*"
     },
     "require-dev": {
+        "doctrine/doctrine-fixtures-bundle": "^3.4",
         "symfony/maker-bundle": "^1.19"
     },
     "config": {

@@ -15,6 +15,7 @@
       <parameter key="DoctrineBundle">Doctrine\Bundle\DoctrineBundle\DoctrineBundle</parameter>
       <parameter key="DoctrineMigrationsBundle">Doctrine\Bundle\MigrationsBundle\DoctrineMigrationsBundle</parameter>
       <parameter key="KnpPaginatorBundle">Knp\Bundle\PaginatorBundle\KnpPaginatorBundle</parameter>
+      <parameter key="DoctrineFixturesBundle">Doctrine\Bundle\FixturesBundle\DoctrineFixturesBundle</parameter>
     </parameter>
     <parameter key="kernel.bundles_metadata" type="collection">
       <parameter key="FrameworkBundle" type="collection">
@@ -40,6 +41,10 @@
       <parameter key="KnpPaginatorBundle" type="collection">
         <parameter key="path">/Users/lebzodev123/projects/symfony/allocationChambreSA/vendor/knplabs/knp-paginator-bundle</parameter>
         <parameter key="namespace">Knp\Bundle\PaginatorBundle</parameter>
+      </parameter>
+      <parameter key="DoctrineFixturesBundle" type="collection">
+        <parameter key="path">/Users/lebzodev123/projects/symfony/allocationChambreSA/vendor/doctrine/doctrine-fixtures-bundle</parameter>
+        <parameter key="namespace">Doctrine\Bundle\FixturesBundle</parameter>
       </parameter>
     </parameter>
     <parameter key="kernel.charset">UTF-8</parameter>
@@ -200,6 +205,9 @@
       <call method="setContainer">
         <argument type="service" id=".service_locator.Ejq_DCG.App\Controller\ChambreController"/>
       </call>
+    </service>
+    <service id="App\DataFixtures\AppFixtures" class="App\DataFixtures\AppFixtures" autowire="true" autoconfigure="true">
+      <tag name="doctrine.fixture.orm"/>
     </service>
     <service id="App\Repository\AllocationRepository" class="App\Repository\AllocationRepository" autowire="true" autoconfigure="true">
       <tag name="doctrine.repository_service"/>
@@ -1061,6 +1069,7 @@
           <argument>/Users/lebzodev123/projects/symfony/allocationChambreSA/vendor/symfony/twig-bundle/translations</argument>
           <argument>/Users/lebzodev123/projects/symfony/allocationChambreSA/vendor/doctrine/doctrine-bundle/translations</argument>
           <argument>/Users/lebzodev123/projects/symfony/allocationChambreSA/vendor/doctrine/doctrine-migrations-bundle/translations</argument>
+          <argument>/Users/lebzodev123/projects/symfony/allocationChambreSA/vendor/doctrine/doctrine-fixtures-bundle/translations</argument>
         </argument>
         <argument key="cache_vary" type="collection">
           <argument key="scanned_directories" type="collection">
@@ -1071,6 +1080,7 @@
             <argument>vendor/symfony/twig-bundle/translations</argument>
             <argument>vendor/doctrine/doctrine-bundle/translations</argument>
             <argument>vendor/doctrine/doctrine-migrations-bundle/translations</argument>
+            <argument>vendor/doctrine/doctrine-fixtures-bundle/translations</argument>
           </argument>
         </argument>
       </argument>
@@ -2651,9 +2661,37 @@
       <tag name="twig.extension"/>
       <argument type="service" id="knp_paginator.helper.processor"/>
     </service>
+    <service id="doctrine.fixtures_load_command" class="Doctrine\Bundle\FixturesBundle\Command\LoadDataFixturesDoctrineCommand">
+      <tag name="console.command" command="doctrine:fixtures:load"/>
+      <tag name="container.no_preload"/>
+      <argument type="service" id="doctrine.fixtures.loader"/>
+      <argument type="service" id="doctrine"/>
+      <argument type="collection">
+        <argument key="default" type="service" id="doctrine.fixtures.purger.orm_purger_factory"/>
+      </argument>
+      <call method="setName">
+        <argument>doctrine:fixtures:load</argument>
+      </call>
+    </service>
+    <service id="doctrine.fixtures.loader" class="Doctrine\Bundle\FixturesBundle\Loader\SymfonyFixturesLoader">
+      <argument type="service" id="service_container"/>
+      <call method="addFixtures">
+        <argument type="collection">
+          <argument type="collection">
+            <argument key="fixture" type="service" id="App\DataFixtures\AppFixtures"/>
+            <argument key="groups" type="collection"/>
+          </argument>
+        </argument>
+      </call>
+    </service>
+    <service id="doctrine.fixtures.purger.orm_purger_factory" class="Doctrine\Bundle\FixturesBundle\Purger\ORMPurgerFactory">
+      <tag name="doctrine.fixtures.purger_factory" alias="default"/>
+    </service>
     <service id=".instanceof.Symfony\Contracts\Service\ServiceSubscriberInterface.0.App\Controller\ChambreController" class="App\Controller\ChambreController" autowire="true" abstract="true"/>
     <service id=".instanceof.Symfony\Bundle\FrameworkBundle\Controller\AbstractController.0.App\Controller\ChambreController" class="App\Controller\ChambreController" autowire="true" abstract="true"/>
     <service id=".abstract.instanceof.App\Controller\ChambreController" class="App\Controller\ChambreController" autowire="true" autoconfigure="true" abstract="true"/>
+    <service id=".instanceof.Doctrine\Bundle\FixturesBundle\ORMFixtureInterface.0.App\DataFixtures\AppFixtures" class="App\DataFixtures\AppFixtures" autowire="true" abstract="true"/>
+    <service id=".abstract.instanceof.App\DataFixtures\AppFixtures" class="App\DataFixtures\AppFixtures" autowire="true" autoconfigure="true" abstract="true"/>
     <service id=".instanceof.Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepositoryInterface.0.App\Repository\AllocationRepository" class="App\Repository\AllocationRepository" autowire="true" abstract="true"/>
     <service id=".abstract.instanceof.App\Repository\AllocationRepository" class="App\Repository\AllocationRepository" autowire="true" autoconfigure="true" abstract="true"/>
     <service id=".instanceof.Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepositoryInterface.0.App\Repository\ChambreRepository" class="App\Repository\ChambreRepository" autowire="true" abstract="true"/>
@@ -3208,7 +3246,7 @@
     <service id=".errored..service_locator.xUrKPVU.Symfony\Component\Config\Loader\LoaderInterface" class="Symfony\Component\Config\Loader\LoaderInterface"/>
     <service id="console.command_loader" class="Symfony\Component\Console\CommandLoader\ContainerCommandLoader" public="true">
       <tag name="container.no_preload"/>
-      <argument type="service" id=".service_locator.QNlyGnB"/>
+      <argument type="service" id=".service_locator.yClkwZl"/>
       <argument type="collection">
         <argument key="about">console.command.about</argument>
         <argument key="assets:install">console.command.assets_install</argument>
@@ -3268,6 +3306,7 @@
         <argument key="doctrine:migrations:status">doctrine_migrations.status_command</argument>
         <argument key="doctrine:migrations:up-to-date">doctrine_migrations.up_to_date_command</argument>
         <argument key="doctrine:migrations:version">doctrine_migrations.version_command</argument>
+        <argument key="doctrine:fixtures:load">doctrine.fixtures_load_command</argument>
         <argument key="make:auth">maker.auto_command.make_auth</argument>
         <argument key="make:command">maker.auto_command.make_command</argument>
         <argument key="make:controller">maker.auto_command.make_controller</argument>
@@ -3293,7 +3332,7 @@
         <argument key="make:migration">maker.auto_command.make_migration</argument>
       </argument>
     </service>
-    <service id=".service_locator.QNlyGnB" class="Symfony\Component\DependencyInjection\ServiceLocator">
+    <service id=".service_locator.yClkwZl" class="Symfony\Component\DependencyInjection\ServiceLocator">
       <tag name="container.service_locator"/>
       <argument type="collection">
         <argument key="console.command.about" type="service_closure" id="console.command.about"/>
@@ -3354,6 +3393,7 @@
         <argument key="doctrine_migrations.status_command" type="service_closure" id="doctrine_migrations.status_command"/>
         <argument key="doctrine_migrations.up_to_date_command" type="service_closure" id="doctrine_migrations.up_to_date_command"/>
         <argument key="doctrine_migrations.version_command" type="service_closure" id="doctrine_migrations.version_command"/>
+        <argument key="doctrine.fixtures_load_command" type="service_closure" id="doctrine.fixtures_load_command"/>
         <argument key="maker.auto_command.make_auth" type="service_closure" id="maker.auto_command.make_auth"/>
         <argument key="maker.auto_command.make_command" type="service_closure" id="maker.auto_command.make_command"/>
         <argument key="maker.auto_command.make_controller" type="service_closure" id="maker.auto_command.make_controller"/>
