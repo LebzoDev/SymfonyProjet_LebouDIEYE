@@ -3,13 +3,20 @@
 namespace Doctrine\Bundle\DoctrineBundle\Command\Proxy;
 
 use Doctrine\DBAL\Tools\Console\Helper\ConnectionHelper;
-use Doctrine\ORM\EntityManager;
+use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\Tools\Console\EntityManagerProvider;
 use Doctrine\ORM\Tools\Console\Helper\EntityManagerHelper;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
+
+use function assert;
+use function class_exists;
+use function trigger_deprecation;
 
 /**
  * Provides some helper and convenience methods to configure doctrine commands in the context of bundles
  * and multiple connections/entity managers.
+ *
+ * @deprecated since DoctrineBundle 2.7 and will be removed in 3.0
  */
 abstract class DoctrineCommandHelper
 {
@@ -20,11 +27,22 @@ abstract class DoctrineCommandHelper
      */
     public static function setApplicationEntityManager(Application $application, $emName)
     {
-        /** @var EntityManager $em */
-        $em        = $application->getKernel()->getContainer()->get('doctrine')->getManager($emName);
+        $em = $application->getKernel()->getContainer()->get('doctrine')->getManager($emName);
+        assert($em instanceof EntityManagerInterface);
         $helperSet = $application->getHelperSet();
-        $helperSet->set(new ConnectionHelper($em->getConnection()), 'db');
+        if (class_exists(ConnectionHelper::class)) {
+            $helperSet->set(new ConnectionHelper($em->getConnection()), 'db');
+        }
+
         $helperSet->set(new EntityManagerHelper($em), 'em');
+
+        trigger_deprecation(
+            'doctrine/doctrine-bundle',
+            '2.7',
+            'Providing an EntityManager using "%s" is deprecated. Use an instance of "%s" instead.',
+            EntityManagerHelper::class,
+            EntityManagerProvider::class
+        );
     }
 
     /**

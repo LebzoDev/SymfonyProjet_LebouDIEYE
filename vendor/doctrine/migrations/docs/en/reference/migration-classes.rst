@@ -9,9 +9,9 @@ and ``down`` methods. You can easily generate a blank migration to modify with t
     $ ./vendor/bin/doctrine-migrations generate
     Generated new migration class to "/data/doctrine/migrations-docs-example/lib/MyProject/Migrations/Version20180601193057.php"
 
-    To run just this migration for testing purposes, you can use migrations:execute --up 'MyProject\Migrations\Version20180601193057'
+    To run just this migration for testing purposes, you can use migrations:execute --up 20180601193057
 
-    To revert the migration you can use migrations:execute --down 'MyProject\Migrations\Version20180601193057'
+    To revert the migration you can use migrations:execute --down 20180601193057
 
 The above command will generate a PHP class with the path to it visible like above. Here is what the blank
 migration looks like:
@@ -66,6 +66,16 @@ Override this method if you want to disable transactions in a migration. It defa
     {
         return false;
     }
+
+.. note::
+
+    Some database platforms like MySQL or Oracle do not support DDL
+    statements in transactions and may or may not implicitly commit the
+    transaction opened by this library as soon as they encounter such a
+    statement, and before running it. Make sure to read the manual of
+    your database platform to know what is actually happening.
+    ``isTransactional()`` does not guarantee that statements are wrapped
+    in a single transaction.
 
 getDescription
 ~~~~~~~~~~~~~~
@@ -176,7 +186,7 @@ addSql
 
 You can use the ``addSql`` method within the ``up`` and ``down`` methods. Internally the ``addSql`` calls are passed
 to the executeQuery method in the DBAL. This means that you can use the power of prepared statements easily and that
-you don't need to copy paste the same query with different parameters. You can just pass those different parameters
+you don't need to copy paste the same query with different parameters. You can just pass those differents parameters
 to the addSql method as parameters.
 
 .. code-block:: php

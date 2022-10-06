@@ -2,21 +2,32 @@
 
 namespace Symfony\Flex;
 
-use Composer\DependencyResolver\Operation\SolverOperation;
+use Composer\DependencyResolver\Operation\OperationInterface;
 use Composer\Package\PackageInterface;
 
 /**
  * @author Maxime Hélias <maximehelias16@gmail.com>
  */
-class InformationOperation extends SolverOperation
+class InformationOperation implements OperationInterface
 {
     private $package;
+    private $recipeRef = null;
+    private $version = null;
 
-    public function __construct(PackageInterface $package, $reason = null)
+    public function __construct(PackageInterface $package)
     {
-        parent::__construct($reason);
-
         $this->package = $package;
+    }
+
+    /**
+     * Call to get information about a specific version of a recipe.
+     *
+     * Both $recipeRef and $version would normally come from the symfony.lock file.
+     */
+    public function setSpecificRecipeVersion(string $recipeRef, string $version)
+    {
+        $this->recipeRef = $recipeRef;
+        $this->version = $version;
     }
 
     /**
@@ -29,9 +40,16 @@ class InformationOperation extends SolverOperation
         return $this->package;
     }
 
-    /**
-     * {@inheritdoc}
-     */
+    public function getRecipeRef(): ?string
+    {
+        return $this->recipeRef;
+    }
+
+    public function getVersion(): ?string
+    {
+        return $this->version;
+    }
+
     public function getJobType()
     {
         return 'information';
@@ -61,5 +79,13 @@ class InformationOperation extends SolverOperation
     public function __toString()
     {
         return $this->show(false);
+    }
+
+    /**
+     * Compatibility for Composer 1.x, not needed in Composer 2.
+     */
+    public function getReason()
+    {
+        return null;
     }
 }

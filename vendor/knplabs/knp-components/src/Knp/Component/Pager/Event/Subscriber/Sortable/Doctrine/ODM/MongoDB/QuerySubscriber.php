@@ -10,10 +10,7 @@ use Symfony\Component\HttpFoundation\Request;
 
 class QuerySubscriber implements EventSubscriberInterface
 {
-    /**
-     * @var Request
-     */
-    private $request;
+    private Request $request;
 
     public function __construct(Request $request)
     {
@@ -34,11 +31,11 @@ class QuerySubscriber implements EventSubscriberInterface
             $sortDir = $event->options[PaginatorInterface::SORT_DIRECTION_PARAMETER_NAME];
             if (null !== $sortField && $this->request->query->has($sortField)) {
                 $field = $this->request->query->get($sortField);
-                $dir = null !== $sortDir && strtolower($this->request->query->get($sortDir)) == 'asc' ? 1 : -1;
+                $dir = null !== $sortDir && strtolower($this->request->query->get($sortDir)) === 'asc' ? 1 : -1;
 
-                if (isset($event->options[PaginatorInterface::SORT_FIELD_WHITELIST])) {
-                    if (!in_array($field, $event->options[PaginatorInterface::SORT_FIELD_WHITELIST])) {
-                        throw new \UnexpectedValueException("Cannot sort by: [{$field}] this field is not in whitelist");
+                if (isset($event->options[PaginatorInterface::SORT_FIELD_ALLOW_LIST])) {
+                    if (!in_array($field, $event->options[PaginatorInterface::SORT_FIELD_ALLOW_LIST])) {
+                        throw new \UnexpectedValueException("Cannot sort by: [{$field}] this field is not in allow list.");
                     }
                 }
                 static $reflectionProperty;
@@ -65,7 +62,7 @@ class QuerySubscriber implements EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         return [
-            'knp_pager.items' => ['items', 1]
+            'knp_pager.items' => ['items', 1],
         ];
     }
 }

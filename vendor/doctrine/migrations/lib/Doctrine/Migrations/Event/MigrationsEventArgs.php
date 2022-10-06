@@ -6,45 +6,46 @@ namespace Doctrine\Migrations\Event;
 
 use Doctrine\Common\EventArgs;
 use Doctrine\DBAL\Connection;
-use Doctrine\Migrations\Metadata\MigrationPlanList;
-use Doctrine\Migrations\MigratorConfiguration;
+use Doctrine\Migrations\Configuration\Configuration;
 
 /**
  * The MigrationEventsArgs class is passed to events not related to a single migration version.
  */
-final class MigrationsEventArgs extends EventArgs
+class MigrationsEventArgs extends EventArgs
 {
-    /** @var Connection */
-    private $connection;
+    /** @var Configuration */
+    private $config;
 
-    /** @var MigrationPlanList */
-    private $plan;
+    /** @var string */
+    private $direction;
 
-    /** @var MigratorConfiguration */
-    private $migratorConfiguration;
+    /** @var bool */
+    private $dryRun;
 
-    public function __construct(
-        Connection $connection,
-        MigrationPlanList $plan,
-        MigratorConfiguration $migratorConfiguration
-    ) {
-        $this->connection            = $connection;
-        $this->plan                  = $plan;
-        $this->migratorConfiguration = $migratorConfiguration;
+    public function __construct(Configuration $config, string $direction, bool $dryRun)
+    {
+        $this->config    = $config;
+        $this->direction = $direction;
+        $this->dryRun    = $dryRun;
     }
 
-    public function getConnection() : Connection
+    public function getConfiguration(): Configuration
     {
-        return $this->connection;
+        return $this->config;
     }
 
-    public function getPlan() : MigrationPlanList
+    public function getConnection(): Connection
     {
-        return $this->plan;
+        return $this->config->getConnection();
     }
 
-    public function getMigratorConfiguration() : MigratorConfiguration
+    public function getDirection(): string
     {
-        return $this->migratorConfiguration;
+        return $this->direction;
+    }
+
+    public function isDryRun(): bool
+    {
+        return $this->dryRun;
     }
 }

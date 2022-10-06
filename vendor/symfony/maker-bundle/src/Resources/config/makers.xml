@@ -12,6 +12,7 @@
                 <argument type="service" id="maker.security_config_updater" />
                 <argument type="service" id="maker.generator" />
                 <argument type="service" id="maker.doctrine_helper" />
+                <argument type="service" id="maker.security_controller_builder" />
                 <tag name="maker.command" />
             </service>
 
@@ -27,6 +28,11 @@
             <service id="maker.maker.make_crud" class="Symfony\Bundle\MakerBundle\Maker\MakeCrud">
                 <argument type="service" id="maker.doctrine_helper" />
                 <argument type="service" id="maker.renderer.form_type_renderer" />
+                <tag name="maker.command" />
+            </service>
+
+            <service id="maker.maker.make_docker_database" class="Symfony\Bundle\MakerBundle\Maker\MakeDockerDatabase">
+                <argument type="service" id="maker.file_manager" />
                 <tag name="maker.command" />
             </service>
 
@@ -66,11 +72,14 @@
                 <argument type="service" id="maker.file_manager" />
                 <argument type="service" id="maker.renderer.form_type_renderer" />
                 <argument type="service" id="router" />
+                <argument type="service" id="maker.doctrine_helper" />
                 <tag name="maker.command" />
             </service>
 
             <service id="maker.maker.make_reset_password" class="Symfony\Bundle\MakerBundle\Maker\MakeResetPassword">
                 <argument type="service" id="maker.file_manager" />
+                <argument type="service" id="maker.doctrine_helper" />
+                <argument type="service" id="maker.entity_class_generator" />
                 <tag name="maker.command" />
             </service>
 
@@ -91,6 +100,10 @@
                 <tag name="maker.command" />
             </service>
 
+            <service id="maker.maker.make_test" class="Symfony\Bundle\MakerBundle\Maker\MakeTest">
+                <tag name="maker.command" />
+            </service>
+
             <service id="maker.maker.make_unit_test" class="Symfony\Bundle\MakerBundle\Maker\MakeUnitTest">
                 <tag name="maker.command" />
             </service>
@@ -107,8 +120,8 @@
                 <argument type="service" id="maker.file_manager" />
                 <argument type="service" id="maker.user_class_builder" />
                 <argument type="service" id="maker.security_config_updater" />
-                <argument type="service" id="maker.doctrine_helper" />
                 <argument type="service" id="maker.entity_class_generator" />
+                <argument type="service" id="maker.doctrine_helper" />
                 <tag name="maker.command" />
             </service>
 

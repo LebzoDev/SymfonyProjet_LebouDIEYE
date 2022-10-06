@@ -8,30 +8,20 @@ use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use RegexIterator;
+
 use function sprintf;
+
 use const DIRECTORY_SEPARATOR;
 
 /**
  * The RecursiveRegexFinder class recursively searches the given directory for migrations.
  */
-final class RecursiveRegexFinder extends Finder
+final class RecursiveRegexFinder extends Finder implements MigrationDeepFinder
 {
-    /** @var string */
-    private $pattern;
-
-    public function __construct(?string $pattern = null)
-    {
-        $this->pattern = $pattern ?? sprintf(
-            '#^.+\\%s[^\\%s]+\\.php$#i',
-            DIRECTORY_SEPARATOR,
-            DIRECTORY_SEPARATOR
-        );
-    }
-
     /**
      * @return string[]
      */
-    public function findMigrations(string $directory, ?string $namespace = null) : array
+    public function findMigrations(string $directory, ?string $namespace = null): array
     {
         $dir = $this->getRealPath($directory);
 
@@ -41,7 +31,7 @@ final class RecursiveRegexFinder extends Finder
         );
     }
 
-    private function createIterator(string $dir) : RegexIterator
+    private function createIterator(string $dir): RegexIterator
     {
         return new RegexIterator(
             new RecursiveIteratorIterator(
@@ -53,15 +43,19 @@ final class RecursiveRegexFinder extends Finder
         );
     }
 
-    private function getPattern() : string
+    private function getPattern(): string
     {
-        return $this->pattern;
+        return sprintf(
+            '#^.+\\%sVersion[^\\%s]{1,255}\\.php$#i',
+            DIRECTORY_SEPARATOR,
+            DIRECTORY_SEPARATOR
+        );
     }
 
     /**
      * @return string[]
      */
-    private function getMatches(RegexIterator $iteratorFilesMatch) : array
+    private function getMatches(RegexIterator $iteratorFilesMatch): array
     {
         $files = [];
         foreach ($iteratorFilesMatch as $file) {

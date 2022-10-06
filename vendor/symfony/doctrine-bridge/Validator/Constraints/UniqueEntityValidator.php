@@ -12,10 +12,13 @@
 namespace Symfony\Bridge\Doctrine\Validator\Constraints;
 
 use Doctrine\Persistence\ManagerRegistry;
+use Doctrine\Persistence\Mapping\ClassMetadata;
+use Doctrine\Persistence\ObjectManager;
 use Symfony\Component\Validator\Constraint;
 use Symfony\Component\Validator\ConstraintValidator;
 use Symfony\Component\Validator\Exception\ConstraintDefinitionException;
 use Symfony\Component\Validator\Exception\UnexpectedTypeException;
+use Symfony\Component\Validator\Exception\UnexpectedValueException;
 
 /**
  * Unique Entity Validator checks if one or a set of fields contain unique values.
@@ -24,7 +27,7 @@ use Symfony\Component\Validator\Exception\UnexpectedTypeException;
  */
 class UniqueEntityValidator extends ConstraintValidator
 {
-    private $registry;
+    private ManagerRegistry $registry;
 
     public function __construct(ManagerRegistry $registry)
     {
@@ -37,7 +40,7 @@ class UniqueEntityValidator extends ConstraintValidator
      * @throws UnexpectedTypeException
      * @throws ConstraintDefinitionException
      */
-    public function validate($entity, Constraint $constraint)
+    public function validate(mixed $entity, Constraint $constraint)
     {
         if (!$constraint instanceof UniqueEntity) {
             throw new UnexpectedTypeException($constraint, UniqueEntity::class);
@@ -59,6 +62,10 @@ class UniqueEntityValidator extends ConstraintValidator
 
         if (null === $entity) {
             return;
+        }
+
+        if (!\is_object($entity)) {
+            throw new UnexpectedValueException($entity, 'object');
         }
 
         if ($constraint->em) {
@@ -132,7 +139,18 @@ class UniqueEntityValidator extends ConstraintValidator
             $repository = $em->getRepository(\get_class($entity));
         }
 
-        $result = $repository->{$constraint->repositoryMethod}($criteria);
+        $arguments = [$criteria];
+
+        /* If the default repository method is used, it is always enough to retrieve at most two entities because:
+         * - No entity returned, the current entity is definitely unique.
+         * - More than one entity returned, the current entity cannot be unique.
+         * - One entity returned the uniqueness depends on the current entity.
+         */
+        if ('findBy' === $constraint->repositoryMethod) {
+            $arguments = [$criteria, null, 2];
+        }
+
+        $result = $repository->{$constraint->repositoryMethod}(...$arguments);
 
         if ($result instanceof \IteratorAggregate) {
             $result = $result->getIterator();
@@ -147,8 +165,7 @@ class UniqueEntityValidator extends ConstraintValidator
             if ($result instanceof \Countable && 1 < \count($result)) {
                 $result = [$result->current(), $result->current()];
             } else {
-                $result = $result->current();
-                $result = null === $result ? [] : [$result];
+                $result = $result->valid() && null !== $result->current() ? [$result->current()] : [];
             }
         } elseif (\is_array($result)) {
             reset($result);
@@ -164,8 +181,8 @@ class UniqueEntityValidator extends ConstraintValidator
             return;
         }
 
-        $errorPath = null !== $constraint->errorPath ? $constraint->errorPath : $fields[0];
-        $invalidValue = isset($criteria[$errorPath]) ? $criteria[$errorPath] : $criteria[$fields[0]];
+        $errorPath = $constraint->errorPath ?? $fields[0];
+        $invalidValue = $criteria[$errorPath] ?? $criteria[$fields[0]];
 
         $this->context->buildViolation($constraint->message)
             ->atPath($errorPath)
@@ -176,13 +193,13 @@ class UniqueEntityValidator extends ConstraintValidator
             ->addViolation();
     }
 
-    private function formatWithIdentifiers($em, $class, $value)
+    private function formatWithIdentifiers(ObjectManager $em, ClassMetadata $class, mixed $value)
     {
         if (!\is_object($value) || $value instanceof \DateTimeInterface) {
             return $this->formatValue($value, self::PRETTY_DATE);
         }
 
-        if (method_exists($value, '__toString')) {
+        if ($value instanceof \Stringable) {
             return (string) $value;
         }
 

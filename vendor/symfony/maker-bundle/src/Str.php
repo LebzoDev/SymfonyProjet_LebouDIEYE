@@ -102,7 +102,9 @@ final class Str
 
     public static function asRouteName(string $value): string
     {
-        return self::asTwigVariable($value);
+        $routeName = self::asTwigVariable($value);
+
+        return str_starts_with($routeName, 'app_') ? $routeName : 'app_'.$routeName;
     }
 
     public static function asSnakeCase(string $value): string
@@ -178,7 +180,7 @@ final class Str
         $nouns = [
             'elephant',
             'pizza',
-            'jellybean',
+            'popsicle',
             'chef',
             'puppy',
             'gnome',
@@ -213,7 +215,7 @@ final class Str
 
     public static function asHumanWords(string $variableName): string
     {
-        return implode(' ', preg_split('/(?=[A-Z])/', $variableName));
+        return str_replace('  ', ' ', ucfirst(trim(implode(' ', preg_split('/(?=[A-Z])/', $variableName)))));
     }
 
     private static function pluralize(string $word): string

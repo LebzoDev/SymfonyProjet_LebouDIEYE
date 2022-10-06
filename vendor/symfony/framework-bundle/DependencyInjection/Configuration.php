@@ -994,6 +994,8 @@ class Configuration implements ConfigurationInterface
                     ->fixXmlConfig('resource')
                     ->children()
                         ->arrayNode('resources')
+                            ->normalizeKeys(false)
+                            ->useAttributeAsKey('name')
                             ->requiresAtLeastOneElement()
                             ->defaultValue(['default' => [class_exists(SemaphoreStore::class) && SemaphoreStore::isSupported() ? 'semaphore' : 'flock']])
                             ->beforeNormalization()
@@ -1016,6 +1018,7 @@ class Configuration implements ConfigurationInterface
                                 })
                             ->end()
                             ->prototype('array')
+                                ->performNoDeepMerging()
                                 ->beforeNormalization()->ifString()->then(function ($v) { return [$v]; })->end()
                                 ->prototype('scalar')->end()
                             ->end()
@@ -1197,7 +1200,7 @@ class Configuration implements ConfigurationInterface
                                                         return $middleware;
                                                     }
                                                     if (1 < \count($middleware)) {
-                                                        throw new \InvalidArgumentException(sprintf('Invalid middleware at path "framework.messenger": a map with a single factory id as key and its arguments as value was expected, %s given.', json_encode($middleware)));
+                                                        throw new \InvalidArgumentException('Invalid middleware at path "framework.messenger": a map with a single factory id as key and its arguments as value was expected, '.json_encode($middleware).' given.');
                                                     }
 
                                                     return [

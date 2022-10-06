@@ -2,10 +2,12 @@
 
 namespace Knp\Component\Pager\Event;
 
+use Symfony\Contracts\EventDispatcher\Event;
+
 /**
  * Specific Event class for paginator
  */
-class ItemsEvent extends Event
+final class ItemsEvent extends Event
 {
     /**
      * A target being paginated
@@ -16,10 +18,8 @@ class ItemsEvent extends Event
 
     /**
      * List of options
-     *
-     * @var array
      */
-    public $options;
+    public array $options;
 
     /**
      * Items result
@@ -30,14 +30,12 @@ class ItemsEvent extends Event
 
     /**
      * Count result
-     *
-     * @var integer
      */
-    public $count;
+    public int $count;
 
-    private $offset;
-    private $limit;
-    private $customPaginationParams = [];
+    private int $offset;
+    private int $limit;
+    private array $customPaginationParams = [];
 
     public function __construct(int $offset, int $limit)
     {

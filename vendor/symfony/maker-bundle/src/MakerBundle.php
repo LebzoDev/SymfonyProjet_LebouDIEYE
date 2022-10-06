@@ -11,8 +11,10 @@
 
 namespace Symfony\Bundle\MakerBundle;
 
+use Symfony\Bundle\MakerBundle\DependencyInjection\CompilerPass\DoctrineAttributesCheckPass;
 use Symfony\Bundle\MakerBundle\DependencyInjection\CompilerPass\MakeCommandRegistrationPass;
 use Symfony\Bundle\MakerBundle\DependencyInjection\CompilerPass\RemoveMissingParametersPass;
+use Symfony\Bundle\MakerBundle\DependencyInjection\CompilerPass\SetDoctrineAnnotatedPrefixesPass;
 use Symfony\Bundle\MakerBundle\DependencyInjection\CompilerPass\SetDoctrineManagerRegistryClassPass;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -27,8 +29,10 @@ class MakerBundle extends Bundle
     public function build(ContainerBuilder $container)
     {
         // add a priority so we run before the core command pass
+        $container->addCompilerPass(new DoctrineAttributesCheckPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 11);
         $container->addCompilerPass(new MakeCommandRegistrationPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
         $container->addCompilerPass(new RemoveMissingParametersPass());
         $container->addCompilerPass(new SetDoctrineManagerRegistryClassPass());
+        $container->addCompilerPass(new SetDoctrineAnnotatedPrefixesPass());
     }
 }

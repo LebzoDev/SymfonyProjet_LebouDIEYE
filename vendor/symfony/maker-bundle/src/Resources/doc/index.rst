@@ -15,7 +15,7 @@ Run this command to install and enable this bundle in your application:
 
 .. code-block:: terminal
 
-    $ composer require symfony/maker-bundle --dev
+    $ composer require --dev symfony/maker-bundle
 
 Usage
 -----
@@ -54,7 +54,7 @@ the root namespace that is used to "guess" what classes you want to generate:
     # config/packages/dev/maker.yaml
     # create this file if you need to configure anything
     maker:
-        # tell MakerBundle that all of your classes lives in an
+        # tell MakerBundle that all of your classes live in an
         # Acme namespace, instead of the default App
         # (e.g. Acme\Entity\Article, Acme\Command\MyCommand, etc)
         root_namespace: 'Acme'
@@ -85,5 +85,5 @@ adding your *own* maker command is so easy, that we recommend that. However, if 
 is some extension point that you'd like, please open an issue so we can discuss!
 
 .. _`SensioGeneratorBundle`: https://github.com/sensiolabs/SensioGeneratorBundle
-.. _`AbstractMaker`: https://github.com/symfony/maker-bundle/blob/master/src/Maker/AbstractMaker.php
-.. _`core maker commands`: https://github.com/symfony/maker-bundle/tree/master/src/Maker
+.. _`AbstractMaker`: https://github.com/symfony/maker-bundle/blob/main/src/Maker/AbstractMaker.php
+.. _`core maker commands`: https://github.com/symfony/maker-bundle/tree/main/src/Maker

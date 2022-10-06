@@ -3,11 +3,12 @@
 namespace Knp\Component\Pager\Event;
 
 use Knp\Component\Pager\Pagination\PaginationInterface;
+use Symfony\Contracts\EventDispatcher\Event;
 
 /**
  * Specific Event class for paginator
  */
-class PaginationEvent extends Event
+final class PaginationEvent extends Event
 {
     /**
      * A target being paginated
@@ -18,12 +19,10 @@ class PaginationEvent extends Event
 
     /**
      * List of options
-     *
-     * @var array
      */
-    public $options;
+    public array $options;
 
-    private $pagination;
+    private PaginationInterface $pagination;
 
     public function setPagination(PaginationInterface $pagination): void
     {

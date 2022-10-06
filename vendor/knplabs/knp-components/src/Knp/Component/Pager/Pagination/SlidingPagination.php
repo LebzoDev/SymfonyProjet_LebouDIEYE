@@ -9,25 +9,21 @@ use Closure;
  *
  * Sliding pagination
  */
-class SlidingPagination extends AbstractPagination
+final class SlidingPagination extends AbstractPagination
 {
     /**
      * Pagination page range
-     *
-     * @var integer
      */
-    private $range = 5;
+    private int $range = 5;
 
     /**
      * Closure which is executed to render pagination
-     *
-     * @var Closure
      */
-    public $renderer;
+    public ?Closure $renderer = null;
 
     public function setPageRange(int $range): void
     {
-        $this->range = intval(abs($range));
+        $this->range = abs($range);
     }
 
     /**
@@ -36,18 +32,17 @@ class SlidingPagination extends AbstractPagination
     public function __toString(): string
     {
         $data = $this->getPaginationData();
-        $output = '';
-        if (!$this->renderer instanceof Closure) {
-            $output = 'override in order to render a template';
-        } else {
+        $output = 'override in order to render a template';
+        if ($this->renderer instanceof Closure) {
             $output = call_user_func($this->renderer, $data);
         }
+
         return $output;
     }
 
     public function getPaginationData(): array
     {
-        $pageCount = intval(ceil($this->totalCount / $this->numItemsPerPage));
+        $pageCount = (int) ceil($this->totalCount / $this->numItemsPerPage);
         $current = $this->currentPageNumber;
 
         if ($this->range > $pageCount) {

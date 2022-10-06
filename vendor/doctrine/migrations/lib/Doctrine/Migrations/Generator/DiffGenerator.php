@@ -10,7 +10,8 @@ use Doctrine\DBAL\Schema\AbstractAsset;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
 use Doctrine\DBAL\Schema\Schema;
 use Doctrine\Migrations\Generator\Exception\NoChangesDetected;
-use Doctrine\Migrations\Provider\SchemaProvider;
+use Doctrine\Migrations\Provider\SchemaProviderInterface;
+
 use function preg_match;
 use function strpos;
 use function substr;
@@ -29,7 +30,7 @@ class DiffGenerator
     /** @var AbstractSchemaManager */
     private $schemaManager;
 
-    /** @var SchemaProvider */
+    /** @var SchemaProviderInterface */
     private $schemaProvider;
 
     /** @var AbstractPlatform */
@@ -41,13 +42,17 @@ class DiffGenerator
     /** @var SqlGenerator */
     private $migrationSqlGenerator;
 
+    /** @var SchemaProviderInterface */
+    private $emptySchemaProvider;
+
     public function __construct(
         DBALConfiguration $dbalConfiguration,
         AbstractSchemaManager $schemaManager,
-        SchemaProvider $schemaProvider,
+        SchemaProviderInterface $schemaProvider,
         AbstractPlatform $platform,
         Generator $migrationGenerator,
-        SqlGenerator $migrationSqlGenerator
+        SqlGenerator $migrationSqlGenerator,
+        SchemaProviderInterface $emptySchemaProvider
     ) {
         $this->dbalConfiguration     = $dbalConfiguration;
         $this->schemaManager         = $schemaManager;
@@ -55,18 +60,20 @@ class DiffGenerator
         $this->platform              = $platform;
         $this->migrationGenerator    = $migrationGenerator;
         $this->migrationSqlGenerator = $migrationSqlGenerator;
+        $this->emptySchemaProvider   = $emptySchemaProvider;
     }
 
     /**
      * @throws NoChangesDetected
      */
     public function generate(
-        string $fqcn,
+        string $versionNumber,
         ?string $filterExpression,
         bool $formatted = false,
         int $lineLength = 120,
-        bool $checkDbPlatform = true
-    ) : string {
+        bool $checkDbPlatform = true,
+        bool $fromEmptySchema = false
+    ): string {
         if ($filterExpression !== null) {
             $this->dbalConfiguration->setSchemaAssetsFilter(
                 static function ($assetName) use ($filterExpression) {
@@ -79,7 +86,9 @@ class DiffGenerator
             );
         }
 
-        $fromSchema = $this->createFromSchema();
+        $fromSchema = $fromEmptySchema
+            ? $this->createEmptySchema()
+            : $this->createFromSchema();
 
         $toSchema = $this->createToSchema();
 
@@ -102,18 +111,23 @@ class DiffGenerator
         }
 
         return $this->migrationGenerator->generateMigration(
-            $fqcn,
+            $versionNumber,
             $up,
             $down
         );
     }
 
-    private function createFromSchema() : Schema
+    private function createEmptySchema(): Schema
+    {
+        return $this->emptySchemaProvider->createSchema();
+    }
+
+    private function createFromSchema(): Schema
     {
         return $this->schemaManager->createSchema();
     }
 
-    private function createToSchema() : Schema
+    private function createToSchema(): Schema
     {
         $toSchema = $this->schemaProvider->createSchema();
 
@@ -140,7 +154,7 @@ class DiffGenerator
      * a namespaced name with the form `{namespace}.{tableName}`. This extracts
      * the table name from that.
      */
-    private function resolveTableName(string $name) : string
+    private function resolveTableName(string $name): string
     {
         $pos = strpos($name, '.');
 

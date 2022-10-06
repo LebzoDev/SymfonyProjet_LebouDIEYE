@@ -12,6 +12,8 @@ final class KnpPaginatorExtension extends Extension
 {
     /**
      * Build the extension services.
+     *
+     * @param array<string, array<string, mixed>> $configs
      */
     public function load(array $configs, ContainerBuilder $container): void
     {
@@ -21,7 +23,9 @@ final class KnpPaginatorExtension extends Extension
         $loader->load('paginator.xml');
 
         if ($container->hasParameter('templating.engines')) {
-            if (\in_array('php', $container->getParameter('templating.engines'), true)) {
+            /** @var array<string> $engines */
+            $engines = $container->getParameter('templating.engines');
+            if (\in_array('php', $engines, true)) {
                 $loader->load('templating_php.xml');
             }
         }
@@ -43,8 +47,8 @@ final class KnpPaginatorExtension extends Extension
             'filterFieldParameterName' => $config['default_options']['filter_field_name'],
             'filterValueParameterName' => $config['default_options']['filter_value_name'],
             'distinct' => $config['default_options']['distinct'],
+            'pageOutOfRange' => $config['default_options']['page_out_of_range'],
+            'defaultLimit' => $config['default_options']['default_limit'],
         ]]);
-
-        $paginatorDef->setLazy(true);
     }
 }

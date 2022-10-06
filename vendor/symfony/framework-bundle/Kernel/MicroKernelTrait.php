@@ -29,7 +29,7 @@ use Symfony\Component\Routing\RouteCollectionBuilder;
  * @author Fabien Potencier <fabien@symfony.com>
  *
  * @method void configureRoutes(RoutingConfigurator $routes)
- * @method void configureContainer(ContainerConfigurator $c)
+ * @method void configureContainer(ContainerConfigurator $container)
  */
 trait MicroKernelTrait
 {
@@ -112,7 +112,7 @@ trait MicroKernelTrait
                 throw new \LogicException(sprintf('"%s" uses "%s", but does not implement the required method "protected function configureContainer(ContainerConfigurator $c): void".', get_debug_type($this), MicroKernelTrait::class), 0, $e);
             }
 
-            $configuratorClass = $configureContainer->getNumberOfParameters() > 0 && ($type = $configureContainer->getParameters()[0]->getType()) && !$type->isBuiltin() ? $type->getName() : null;
+            $configuratorClass = $configureContainer->getNumberOfParameters() > 0 && ($type = $configureContainer->getParameters()[0]->getType()) instanceof \ReflectionNamedType && !$type->isBuiltin() ? $type->getName() : null;
 
             if ($configuratorClass && !is_a(ContainerConfigurator::class, $configuratorClass, true)) {
                 $this->configureContainer($container, $loader);
@@ -152,7 +152,7 @@ trait MicroKernelTrait
     {
         $file = (new \ReflectionObject($this))->getFileName();
         /* @var RoutingPhpFileLoader $kernelLoader */
-        $kernelLoader = $loader->getResolver()->resolve($file);
+        $kernelLoader = $loader->getResolver()->resolve($file, 'php');
         $kernelLoader->setCurrentDir(\dirname($file));
         $collection = new RouteCollection();
 

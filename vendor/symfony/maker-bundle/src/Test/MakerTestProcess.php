@@ -24,7 +24,7 @@ final class MakerTestProcess
 
     private function __construct($commandLine, $cwd, array $envVars, $timeout)
     {
-        $this->process = method_exists(Process::class, 'fromShellCommandline')
+        $this->process = \is_string($commandLine)
             ? Process::fromShellCommandline($commandLine, $cwd, null, null, $timeout)
             : new Process($commandLine, $cwd, null, null, $timeout);
 
@@ -54,17 +54,17 @@ final class MakerTestProcess
         return $this;
     }
 
-    public function isSuccessful()
+    public function isSuccessful(): bool
     {
         return $this->process->isSuccessful();
     }
 
-    public function getOutput()
+    public function getOutput(): string
     {
         return $this->process->getOutput();
     }
 
-    public function getErrorOutput()
+    public function getErrorOutput(): string
     {
         return $this->process->getErrorOutput();
     }

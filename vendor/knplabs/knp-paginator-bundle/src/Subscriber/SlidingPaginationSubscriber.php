@@ -10,10 +10,18 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 final class SlidingPaginationSubscriber implements EventSubscriberInterface
 {
+    /** @var string */
     private $route;
+
+    /** @var array<string, mixed> */
     private $params = [];
+
+    /** @var array<string, mixed> */
     private $options;
 
+    /**
+     * @param array<string, mixed> $options
+     */
     public function __construct(array $options)
     {
         $this->options = $options;
@@ -30,7 +38,7 @@ final class SlidingPaginationSubscriber implements EventSubscriberInterface
         $this->route = $request->attributes->get('_route');
         $this->params = \array_replace($request->query->all(), $request->attributes->get('_route_params', []));
         foreach ($this->params as $key => $param) {
-            if ('_' == \substr($key, 0, 1)) {
+            if (\strpos($key, '_') === 0) {
                 unset($this->params[$key]);
             }
         }
@@ -58,10 +66,8 @@ final class SlidingPaginationSubscriber implements EventSubscriberInterface
             $sortDirectionParameterName = $this->params[$eventOptions['sortDirectionParameterName']];
             $isDirectionEqual = $defaultSortDirection === $sortDirectionParameterName;
 
-            if (isset($defaultSortFieldName) && isset($sortFieldParameterName) && $isFieldEqual
-                && isset($defaultSortDirection) && isset($sortDirectionParameterName) && $isDirectionEqual) {
-                unset($this->params[$eventOptions['sortFieldParameterName']]);
-                unset($this->params[$eventOptions['sortDirectionParameterName']]);
+            if (isset($defaultSortFieldName, $sortFieldParameterName, $defaultSortDirection, $sortDirectionParameterName) && $isFieldEqual && $isDirectionEqual) {
+                unset($this->params[$eventOptions['sortFieldParameterName']], $this->params[$eventOptions['sortDirectionParameterName']]);
             }
         }
 
@@ -78,6 +84,9 @@ final class SlidingPaginationSubscriber implements EventSubscriberInterface
         $event->stopPropagation();
     }
 
+    /**
+     * @return array<string, array<int, int|string>>
+     */
     public static function getSubscribedEvents(): array
     {
         return [

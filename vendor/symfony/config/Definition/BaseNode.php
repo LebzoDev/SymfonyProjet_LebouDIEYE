@@ -24,9 +24,9 @@ use Symfony\Component\Config\Definition\Exception\UnsetKeyException;
  */
 abstract class BaseNode implements NodeInterface
 {
-    const DEFAULT_PATH_SEPARATOR = '.';
+    public const DEFAULT_PATH_SEPARATOR = '.';
 
-    private static $placeholderUniquePrefix;
+    private static $placeholderUniquePrefixes = [];
     private static $placeholders = [];
 
     protected $name;
@@ -47,7 +47,7 @@ abstract class BaseNode implements NodeInterface
      */
     public function __construct(?string $name, NodeInterface $parent = null, string $pathSeparator = self::DEFAULT_PATH_SEPARATOR)
     {
-        if (false !== strpos($name = (string) $name, $pathSeparator)) {
+        if (str_contains($name = (string) $name, $pathSeparator)) {
             throw new \InvalidArgumentException('The name must not contain ".'.$pathSeparator.'".');
         }
 
@@ -74,7 +74,7 @@ abstract class BaseNode implements NodeInterface
     }
 
     /**
-     * Sets a common prefix for dynamic placeholder values.
+     * Adds a common prefix for dynamic placeholder values.
      *
      * Matching configuration values will be skipped from being processed and are returned as is, thus preserving the
      * placeholder. An exact match provided by {@see setPlaceholder()} might take precedence.
@@ -83,7 +83,7 @@ abstract class BaseNode implements NodeInterface
      */
     public static function setPlaceholderUniquePrefix(string $prefix): void
     {
-        self::$placeholderUniquePrefix = $prefix;
+        self::$placeholderUniquePrefixes[] = $prefix;
     }
 
     /**
@@ -93,7 +93,7 @@ abstract class BaseNode implements NodeInterface
      */
     public static function resetPlaceholders(): void
     {
-        self::$placeholderUniquePrefix = null;
+        self::$placeholderUniquePrefixes = [];
         self::$placeholders = [];
     }
 
@@ -107,7 +107,7 @@ abstract class BaseNode implements NodeInterface
      */
     public function getAttribute(string $key, $default = null)
     {
-        return isset($this->attributes[$key]) ? $this->attributes[$key] : $default;
+        return $this->attributes[$key] ?? $default;
     }
 
     /**
@@ -147,7 +147,7 @@ abstract class BaseNode implements NodeInterface
     /**
      * Returns info message.
      *
-     * @return string|null The info text
+     * @return string|null
      */
     public function getInfo()
     {
@@ -167,7 +167,7 @@ abstract class BaseNode implements NodeInterface
     /**
      * Retrieves the example configuration for this node.
      *
-     * @return string|array|null The example
+     * @return string|array|null
      */
     public function getExample()
     {
@@ -187,8 +187,6 @@ abstract class BaseNode implements NodeInterface
 
     /**
      * Set this node as required.
-     *
-     * @param bool $boolean Required node
      */
     public function setRequired(bool $boolean)
     {
@@ -200,12 +198,12 @@ abstract class BaseNode implements NodeInterface
      *
      * @param string $package The name of the composer package that is triggering the deprecation
      * @param string $version The version of the package that introduced the deprecation
-     * @param string $message The deprecation message to use
+     * @param string $message the deprecation message to use
      *
      * You can use %node% and %path% placeholders in your message to display,
-     * respectively, the node name and its complete path.
+     * respectively, the node name and its complete path
      */
-    public function setDeprecated(?string $package/*, string $version, string $message = 'The child node "%node%" at path "%path%" is deprecated.' */)
+    public function setDeprecated(?string $package/* , string $version, string $message = 'The child node "%node%" at path "%path%" is deprecated.' */)
     {
         $args = \func_get_args();
 
@@ -417,7 +415,7 @@ abstract class BaseNode implements NodeInterface
      *
      * @param mixed $value
      *
-     * @return mixed The normalized array value
+     * @return mixed
      */
     protected function preNormalize($value)
     {
@@ -489,7 +487,7 @@ abstract class BaseNode implements NodeInterface
      *
      * @param mixed $value The value to normalize
      *
-     * @return mixed The normalized value
+     * @return mixed
      */
     abstract protected function normalizeValue($value);
 
@@ -499,7 +497,7 @@ abstract class BaseNode implements NodeInterface
      * @param mixed $leftSide
      * @param mixed $rightSide
      *
-     * @return mixed The merged value
+     * @return mixed
      */
     abstract protected function mergeValues($leftSide, $rightSide);
 
@@ -508,7 +506,7 @@ abstract class BaseNode implements NodeInterface
      *
      * @param mixed $value The value to finalize
      *
-     * @return mixed The finalized value
+     * @return mixed
      */
     abstract protected function finalizeValue($value);
 
@@ -543,8 +541,10 @@ abstract class BaseNode implements NodeInterface
                 return self::$placeholders[$value];
             }
 
-            if (self::$placeholderUniquePrefix && 0 === strpos($value, self::$placeholderUniquePrefix)) {
-                return [];
+            foreach (self::$placeholderUniquePrefixes as $placeholderUniquePrefix) {
+                if (str_starts_with($value, $placeholderUniquePrefix)) {
+                    return [];
+                }
             }
         }
 

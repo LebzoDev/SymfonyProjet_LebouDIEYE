@@ -15,26 +15,20 @@ class ArraySubscriber implements EventSubscriberInterface
     /**
      * @var string the field used to sort current object array list
      */
-    private $currentSortingField;
+    private string $currentSortingField;
 
     /**
      * @var string the sorting direction
      */
-    private $sortDirection;
+    private string $sortDirection;
 
-    /**
-     * @var PropertyAccessorInterface
-     */
-    private $propertyAccessor;
+    private ?PropertyAccessorInterface $propertyAccessor;
 
-    /**
-     * @var Request
-     */
-    private $request;
+    private Request $request;
 
     public function __construct(Request $request = null, PropertyAccessorInterface $accessor = null)
     {
-        if (!$accessor && class_exists('Symfony\Component\PropertyAccess\PropertyAccess')) {
+        if (!$accessor && class_exists(PropertyAccess::class)) {
             $accessor = PropertyAccess::createPropertyAccessorBuilder()->enableMagicCall()->getPropertyAccessor();
         }
 
@@ -60,11 +54,11 @@ class ArraySubscriber implements EventSubscriberInterface
 
         $event->setCustomPaginationParameter('sorted', true);
 
-        if (isset($event->options[PaginatorInterface::SORT_FIELD_WHITELIST]) && !in_array($this->request->query->get($sortField), $event->options[PaginatorInterface::SORT_FIELD_WHITELIST])) {
-            throw new \UnexpectedValueException("Cannot sort by: [{$this->request->query->get($sortField)}] this field is not in whitelist");
+        if (isset($event->options[PaginatorInterface::SORT_FIELD_ALLOW_LIST]) && !in_array($this->request->query->get($sortField), $event->options[PaginatorInterface::SORT_FIELD_ALLOW_LIST])) {
+            throw new \UnexpectedValueException("Cannot sort by: [{$this->request->query->get($sortField)}] this field is not in allow list.");
         }
 
-        $sortFunction = isset($event->options['sortFunction']) ? $event->options['sortFunction'] : [$this, 'proxySortFunction'];
+        $sortFunction = $event->options['sortFunction'] ?? [$this, 'proxySortFunction'];
         $sortField = $this->request->query->get($sortField);
 
         // compatibility layer
@@ -75,7 +69,7 @@ class ArraySubscriber implements EventSubscriberInterface
         call_user_func_array($sortFunction, [
             &$event->target,
             $sortField,
-            $this->getSortDirection($event->options)
+            $this->getSortDirection($event->options),
         ]);
     }
 
@@ -108,7 +102,7 @@ class ArraySubscriber implements EventSubscriberInterface
      */
     private function sortFunction($object1, $object2): int
     {
-        if (!$this->propertyAccessor) {
+        if (null === $this->propertyAccessor) {
             throw new \UnexpectedValueException('You need symfony/property-access component to use this sorting function');
         }
 
@@ -151,7 +145,7 @@ class ArraySubscriber implements EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         return [
-            'knp_pager.items' => ['items', 1]
+            'knp_pager.items' => ['items', 1],
         ];
     }
 }

@@ -35,17 +35,22 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Form\Form;
 use Symfony\Component\HttpKernel\Kernel;
+use Symfony\Component\Security\Guard\Authenticator\AbstractFormLoginAuthenticator;
+use Symfony\Component\Security\Http\Authenticator\AuthenticatorInterface;
+use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
+use Symfony\Component\Security\Http\Authenticator\Passport\PassportInterface;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * @author Ryan Weaver <ryan@knpuniversity.com>
+ * @author Ryan Weaver   <ryan@symfonycasts.com>
+ * @author Jesse Rushlow <jr@rushlow.dev>
  *
  * @internal
  */
 final class MakeAuthenticator extends AbstractMaker
 {
-    const AUTH_TYPE_EMPTY_AUTHENTICATOR = 'empty-authenticator';
-    const AUTH_TYPE_FORM_LOGIN = 'form-login';
+    private const AUTH_TYPE_EMPTY_AUTHENTICATOR = 'empty-authenticator';
+    private const AUTH_TYPE_FORM_LOGIN = 'form-login';
 
     private $fileManager;
 
@@ -55,12 +60,17 @@ final class MakeAuthenticator extends AbstractMaker
 
     private $doctrineHelper;
 
-    public function __construct(FileManager $fileManager, SecurityConfigUpdater $configUpdater, Generator $generator, DoctrineHelper $doctrineHelper)
+    private $securityControllerBuilder;
+
+    private $useSecurity52 = false;
+
+    public function __construct(FileManager $fileManager, SecurityConfigUpdater $configUpdater, Generator $generator, DoctrineHelper $doctrineHelper, SecurityControllerBuilder $securityControllerBuilder)
     {
         $this->fileManager = $fileManager;
         $this->configUpdater = $configUpdater;
         $this->generator = $generator;
         $this->doctrineHelper = $doctrineHelper;
+        $this->securityControllerBuilder = $securityControllerBuilder;
     }
 
     public static function getCommandName(): string
@@ -68,10 +78,14 @@ final class MakeAuthenticator extends AbstractMaker
         return 'make:auth';
     }
 
+    public static function getCommandDescription(): string
+    {
+        return 'Creates a Guard authenticator of different flavors';
+    }
+
     public function configureCommand(Command $command, InputConfiguration $inputConfig)
     {
         $command
-            ->setDescription('Creates a Guard authenticator of different flavors')
             ->setHelp(file_get_contents(__DIR__.'/../Resources/help/MakeAuth.txt'));
     }
 
@@ -82,6 +96,15 @@ final class MakeAuthenticator extends AbstractMaker
         }
         $manipulator = new YamlSourceManipulator($this->fileManager->getFileContents($path));
         $securityData = $manipulator->getData();
+
+        // Determine if we should use new security features introduced in Symfony 5.2
+        if ($securityData['security']['enable_authenticator_manager'] ?? false) {
+            $this->useSecurity52 = true;
+        }
+
+        if ($this->useSecurity52 && !class_exists(UserBadge::class)) {
+            throw new RuntimeCommandException('MakerBundle does not support generating authenticators using the new authenticator system before symfony/security-bundle 5.2. Please upgrade to 5.2 and try again.');
+        }
 
         // authenticator type
         $authenticatorTypeValues = [
@@ -137,10 +160,13 @@ final class MakeAuthenticator extends AbstractMaker
         $input->setOption('firewall-name', $firewallName = $interactiveSecurityHelper->guessFirewallName($io, $securityData));
 
         $command->addOption('entry-point', null, InputOption::VALUE_OPTIONAL);
-        $input->setOption(
-            'entry-point',
-            $interactiveSecurityHelper->guessEntryPoint($io, $securityData, $input->getArgument('authenticator-class'), $firewallName)
-        );
+
+        if (!$this->useSecurity52) {
+            $input->setOption(
+                'entry-point',
+                $interactiveSecurityHelper->guessEntryPoint($io, $securityData, $input->getArgument('authenticator-class'), $firewallName)
+            );
+        }
 
         if (self::AUTH_TYPE_FORM_LOGIN === $input->getArgument('authenticator-type')) {
             $command->addArgument('controller-class', InputArgument::REQUIRED);
@@ -191,13 +217,21 @@ final class MakeAuthenticator extends AbstractMaker
 
         // update security.yaml with guard config
         $securityYamlUpdated = false;
+
+        $entryPoint = $input->getOption('entry-point');
+
+        if ($this->useSecurity52 && self::AUTH_TYPE_FORM_LOGIN !== $input->getArgument('authenticator-type')) {
+            $entryPoint = false;
+        }
+
         try {
             $newYaml = $this->configUpdater->updateForAuthenticator(
                 $this->fileManager->getFileContents($path = 'config/packages/security.yaml'),
                 $input->getOption('firewall-name'),
-                $input->getOption('entry-point'),
+                $entryPoint,
                 $input->getArgument('authenticator-class'),
-                $input->hasArgument('logout-setup') ? $input->getArgument('logout-setup') : false
+                $input->hasArgument('logout-setup') ? $input->getArgument('logout-setup') : false,
+                $this->useSecurity52
             );
             $generator->dumpFile($path, $newYaml);
             $securityYamlUpdated = true;
@@ -222,7 +256,8 @@ final class MakeAuthenticator extends AbstractMaker
                 $input->getArgument('authenticator-type'),
                 $input->getArgument('authenticator-class'),
                 $securityData,
-                $input->hasArgument('user-class') ? $input->getArgument('user-class') : null
+                $input->hasArgument('user-class') ? $input->getArgument('user-class') : null,
+                $input->hasArgument('logout-setup') ? $input->getArgument('logout-setup') : false
             )
         );
     }
@@ -233,8 +268,11 @@ final class MakeAuthenticator extends AbstractMaker
         if (self::AUTH_TYPE_EMPTY_AUTHENTICATOR === $authenticatorType) {
             $this->generator->generateClass(
                 $authenticatorClass,
-                'authenticator/EmptyAuthenticator.tpl.php',
-                []
+                sprintf('authenticator/%sEmptyAuthenticator.tpl.php', $this->useSecurity52 ? 'Security52' : ''),
+                [
+                    'provider_key_type_hint' => $this->getGuardProviderKeyTypeHint(),
+                    'use_legacy_passport_interface' => $this->shouldUseLegacyPassportInterface(),
+                ]
             );
 
             return;
@@ -247,14 +285,17 @@ final class MakeAuthenticator extends AbstractMaker
 
         $this->generator->generateClass(
             $authenticatorClass,
-            'authenticator/LoginFormAuthenticator.tpl.php',
+            sprintf('authenticator/%sLoginFormAuthenticator.tpl.php', $this->useSecurity52 ? 'Security52' : ''),
             [
                 'user_fully_qualified_class_name' => trim($userClassNameDetails->getFullName(), '\\'),
                 'user_class_name' => $userClassNameDetails->getShortName(),
                 'username_field' => $userNameField,
                 'username_field_label' => Str::asHumanWords($userNameField),
+                'username_field_var' => Str::asLowerCamelCase($userNameField),
                 'user_needs_encoder' => $this->userClassHasEncoder($securityData, $userClass),
                 'user_is_entity' => $this->doctrineHelper->isClassAMappedEntity($userClass),
+                'provider_key_type_hint' => $this->getGuardProviderKeyTypeHint(),
+                'use_legacy_passport_interface' => $this->shouldUseLegacyPassportInterface(),
             ]
         );
     }
@@ -285,10 +326,10 @@ final class MakeAuthenticator extends AbstractMaker
 
         $manipulator = new ClassSourceManipulator($controllerSourceCode, true);
 
-        $securityControllerBuilder = new SecurityControllerBuilder();
-        $securityControllerBuilder->addLoginMethod($manipulator);
+        $this->securityControllerBuilder->addLoginMethod($manipulator);
+
         if ($logoutSetup) {
-            $securityControllerBuilder->addLogoutMethod($manipulator);
+            $this->securityControllerBuilder->addLogoutMethod($manipulator);
         }
 
         $this->generator->dumpFile($controllerPath, $manipulator->getSourceCode());
@@ -306,7 +347,7 @@ final class MakeAuthenticator extends AbstractMaker
         );
     }
 
-    private function generateNextMessage(bool $securityYamlUpdated, string $authenticatorType, string $authenticatorClass, array $securityData, $userClass): array
+    private function generateNextMessage(bool $securityYamlUpdated, string $authenticatorType, string $authenticatorClass, array $securityData, $userClass, bool $logoutSetup): array
     {
         $nextTexts = ['Next:'];
         $nextTexts[] = '- Customize your new authenticator.';
@@ -316,9 +357,11 @@ final class MakeAuthenticator extends AbstractMaker
                 'security: {}',
                 'main',
                 null,
-                $authenticatorClass
+                $authenticatorClass,
+                $logoutSetup,
+                $this->useSecurity52
             );
-            $nextTexts[] = '- Your <info>security.yaml</info> could not be updated automatically. You\'ll need to add the following config manually:\n\n'.$yamlExample;
+            $nextTexts[] = "- Your <info>security.yaml</info> could not be updated automatically. You'll need to add the following config manually:\n\n".$yamlExample;
         }
 
         if (self::AUTH_TYPE_FORM_LOGIN === $authenticatorType) {
@@ -328,7 +371,8 @@ final class MakeAuthenticator extends AbstractMaker
                 $nextTexts[] = sprintf('- Review <info>%s::getUser()</info> to make sure it matches your needs.', $authenticatorClass);
             }
 
-            if (!$this->userClassHasEncoder($securityData, $userClass)) {
+            // this only applies to Guard authentication AND if the user does not have a hasher configured
+            if (!$this->useSecurity52 && !$this->userClassHasEncoder($securityData, $userClass)) {
                 $nextTexts[] = sprintf('- Check the user\'s password in <info>%s::checkCredentials()</info>.', $authenticatorClass);
             }
 
@@ -341,11 +385,11 @@ final class MakeAuthenticator extends AbstractMaker
     private function userClassHasEncoder(array $securityData, string $userClass): bool
     {
         $userNeedsEncoder = false;
-        if (isset($securityData['security']['encoders']) && $securityData['security']['encoders']) {
-            foreach ($securityData['security']['encoders'] as $userClassWithEncoder => $encoder) {
-                if ($userClass === $userClassWithEncoder || is_subclass_of($userClass, $userClassWithEncoder)) {
-                    $userNeedsEncoder = true;
-                }
+        $hashersData = $securityData['security']['encoders'] ?? $securityData['security']['encoders'] ?? [];
+
+        foreach ($hashersData as $userClassWithEncoder => $encoder) {
+            if ($userClass === $userClassWithEncoder || is_subclass_of($userClass, $userClassWithEncoder) || class_implements($userClass, $userClassWithEncoder)) {
+                $userNeedsEncoder = true;
             }
         }
 
@@ -364,5 +408,44 @@ final class MakeAuthenticator extends AbstractMaker
             Yaml::class,
             'yaml'
         );
+    }
+
+    /**
+     * Calculates the type-hint used for the $provider argument (string or nothing) for Guard.
+     */
+    private function getGuardProviderKeyTypeHint(): string
+    {
+        // doesn't matter: this only applies to non-Guard authenticators
+        if (!class_exists(AbstractFormLoginAuthenticator::class)) {
+            return '';
+        }
+
+        $reflectionMethod = new \ReflectionMethod(AbstractFormLoginAuthenticator::class, 'onAuthenticationSuccess');
+        $type = $reflectionMethod->getParameters()[2]->getType();
+
+        if (!$type instanceof \ReflectionNamedType) {
+            return '';
+        }
+
+        return sprintf('%s ', $type->getName());
+    }
+
+    private function shouldUseLegacyPassportInterface(): bool
+    {
+        // only applies to new authenticator security
+        if (!$this->useSecurity52) {
+            return false;
+        }
+
+        // legacy: checking for Symfony 5.2 & 5.3 before PassportInterface deprecation
+        $class = new \ReflectionClass(AuthenticatorInterface::class);
+        $method = $class->getMethod('authenticate');
+
+        // 5.4 where return type is temporarily removed
+        if (!$method->getReturnType()) {
+            return false;
+        }
+
+        return PassportInterface::class === $method->getReturnType()->getName();
     }
 }

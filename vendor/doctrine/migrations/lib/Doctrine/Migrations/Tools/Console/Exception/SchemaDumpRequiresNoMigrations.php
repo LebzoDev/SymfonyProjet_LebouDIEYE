@@ -5,15 +5,11 @@ declare(strict_types=1);
 namespace Doctrine\Migrations\Tools\Console\Exception;
 
 use RuntimeException;
-use function sprintf;
 
 final class SchemaDumpRequiresNoMigrations extends RuntimeException implements ConsoleException
 {
-    public static function new(string $namespace) : self
+    public static function new(): self
     {
-        return new self(sprintf(
-            'Delete any previous migrations in the namespace "%s" before dumping your schema.',
-            $namespace
-        ));
+        return new self('Delete any previous migrations before dumping your schema.');
     }
 }

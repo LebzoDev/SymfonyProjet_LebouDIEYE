@@ -24,8 +24,8 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
  */
 class EntityFactory implements UserProviderFactoryInterface
 {
-    private $key;
-    private $providerId;
+    private string $key;
+    private string $providerId;
 
     public function __construct(string $key, string $providerId)
     {
@@ -52,7 +52,11 @@ class EntityFactory implements UserProviderFactoryInterface
     {
         $node
             ->children()
-                ->scalarNode('class')->isRequired()->cannotBeEmpty()->end()
+                ->scalarNode('class')
+                    ->isRequired()
+                    ->info('The full entity class name of your user class.')
+                    ->cannotBeEmpty()
+                ->end()
                 ->scalarNode('property')->defaultNull()->end()
                 ->scalarNode('manager_name')->defaultNull()->end()
             ->end()

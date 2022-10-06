@@ -9,8 +9,8 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
 <?= $user_needs_encoder ? "use Symfony\\Component\\Security\\Core\\Encoder\\UserPasswordEncoderInterface;\n" : null ?>
-use Symfony\Component\Security\Core\Exception\CustomUserMessageAuthenticationException;
 use Symfony\Component\Security\Core\Exception\InvalidCsrfTokenException;
+use Symfony\Component\Security\Core\Exception\UsernameNotFoundException;
 use Symfony\Component\Security\Core\Security;
 use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Security\Core\User\UserProviderInterface;
@@ -73,8 +73,7 @@ class <?= $class_name; ?> extends AbstractFormLoginAuthenticator<?= $password_au
         \$user = \$userProvider->loadUserByUsername(\$credentials['$username_field']);\n"; ?>
 
         if (!$user) {
-            // fail authentication with a custom error
-            throw new CustomUserMessageAuthenticationException('<?= ucfirst($username_field_label) ?> could not be found.');
+            throw new UsernameNotFoundException('<?= ucfirst($username_field_label) ?> could not be found.');
         }
 
         return $user;
@@ -98,7 +97,7 @@ class <?= $class_name; ?> extends AbstractFormLoginAuthenticator<?= $password_au
     }
 
 <?php endif ?>
-    public function onAuthenticationSuccess(Request $request, TokenInterface $token, $providerKey)
+    public function onAuthenticationSuccess(Request $request, TokenInterface $token, <?= $provider_key_type_hint ?>$providerKey)
     {
         if ($targetPath = $this->getTargetPath($request->getSession(), $providerKey)) {
             return new RedirectResponse($targetPath);

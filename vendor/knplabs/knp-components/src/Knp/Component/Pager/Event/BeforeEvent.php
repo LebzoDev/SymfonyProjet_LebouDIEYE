@@ -2,17 +2,18 @@
 
 namespace Knp\Component\Pager\Event;
 
-use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Contracts\EventDispatcher\Event;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 /**
  * Specific Event class for paginator
  */
-class BeforeEvent extends Event
+final class BeforeEvent extends Event
 {
-    private $eventDispatcher;
+    private EventDispatcherInterface $eventDispatcher;
 
-    private $request;
+    private ?Request $request;
 
     public function __construct(EventDispatcherInterface $eventDispatcher, ?Request $request)
     {

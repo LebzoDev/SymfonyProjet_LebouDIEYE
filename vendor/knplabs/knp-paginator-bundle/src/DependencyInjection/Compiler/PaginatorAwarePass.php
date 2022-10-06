@@ -2,6 +2,7 @@
 
 namespace Knp\Bundle\PaginatorBundle\DependencyInjection\Compiler;
 
+use Knp\Bundle\PaginatorBundle\Definition\PaginatorAwareInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidDefinitionException;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -17,27 +18,30 @@ final class PaginatorAwarePass implements CompilerPassInterface
     /**
      * @var string
      */
-    const PAGINATOR_AWARE_TAG = 'knp_paginator.injectable';
+    public const PAGINATOR_AWARE_TAG = 'knp_paginator.injectable';
 
     /**
      * @var string
      */
-    const PAGINATOR_AWARE_INTERFACE = 'Knp\Bundle\PaginatorBundle\Definition\PaginatorAwareInterface';
+    public const PAGINATOR_AWARE_INTERFACE = PaginatorAwareInterface::class;
 
     /**
      * Populates all tagged services with the paginator service.
      *
      * @throws \InvalidArgumentException
-     * @throws \Symfony\Component\Config\Definition\Exception\InvalidDefinitionException
+     * @throws InvalidDefinitionException
      */
     public function process(ContainerBuilder $container): void
     {
         $defaultAttributes = ['paginator' => 'knp_paginator'];
 
-        foreach ($container->findTaggedServiceIds(self::PAGINATOR_AWARE_TAG) as $id => $attributes) {
+        foreach ($container->findTaggedServiceIds(self::PAGINATOR_AWARE_TAG) as $id => [$attributes]) {
             $definition = $container->getDefinition($id);
-
-            $refClass = new \ReflectionClass($definition->getClass());
+            if (null === $class = $definition->getClass()) {
+                throw new \InvalidArgumentException(\sprintf('Service "%s" not found.', $id));
+            }
+            /** @var class-string $class */
+            $refClass = new \ReflectionClass($class);
             if (!$refClass->implementsInterface(self::PAGINATOR_AWARE_INTERFACE)) {
                 throw new \InvalidArgumentException(\sprintf('Service "%s" must implement interface "%s".', $id, self::PAGINATOR_AWARE_INTERFACE));
             }

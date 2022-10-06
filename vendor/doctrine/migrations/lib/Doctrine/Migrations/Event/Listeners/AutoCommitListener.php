@@ -7,6 +7,7 @@ namespace Doctrine\Migrations\Event\Listeners;
 use Doctrine\Common\EventSubscriber;
 use Doctrine\Migrations\Event\MigrationsEventArgs;
 use Doctrine\Migrations\Events;
+use Doctrine\Migrations\Tools\TransactionHelper;
 
 /**
  * Listens for `onMigrationsMigrated` and, if the connection has autocommit
@@ -16,16 +17,15 @@ use Doctrine\Migrations\Events;
  */
 final class AutoCommitListener implements EventSubscriber
 {
-    public function onMigrationsMigrated(MigrationsEventArgs $args) : void
+    public function onMigrationsMigrated(MigrationsEventArgs $args): void
     {
         $conn = $args->getConnection();
-        $conf = $args->getMigratorConfiguration();
 
-        if ($conf->isDryRun() || $conn->isAutoCommit()) {
+        if ($args->isDryRun() || $conn->isAutoCommit()) {
             return;
         }
 
-        $conn->commit();
+        TransactionHelper::commitIfInTransaction($conn);
     }
 
     /** {@inheritdoc} */

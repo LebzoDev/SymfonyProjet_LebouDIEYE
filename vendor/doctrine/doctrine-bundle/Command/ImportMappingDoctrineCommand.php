@@ -13,6 +13,15 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
+use function chmod;
+use function dirname;
+use function file_put_contents;
+use function is_dir;
+use function mkdir;
+use function sprintf;
+use function str_replace;
+use function trigger_deprecation;
+
 /**
  * Import Doctrine ORM metadata mapping information from an existing database.
  *
@@ -25,9 +34,7 @@ class ImportMappingDoctrineCommand extends DoctrineCommand
     /** @var string[] */
     private $bundles;
 
-    /**
-     * @param string[] $bundles
-     */
+    /** @param string[] $bundles */
     public function __construct(ManagerRegistry $doctrine, array $bundles)
     {
         parent::__construct($doctrine);
@@ -35,10 +42,7 @@ class ImportMappingDoctrineCommand extends DoctrineCommand
         $this->bundles = $bundles;
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->setName('doctrine:mapping:import')
@@ -81,10 +85,7 @@ EOT
         );
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $type = $input->getArgument('mapping-type') ?: 'xml';
         if ($type === 'yaml') {
@@ -120,6 +121,15 @@ EOT
             $exporter->setEntityGenerator($entityGenerator);
         }
 
+        if ($input->getOption('shard')) {
+            trigger_deprecation(
+                'doctrine/doctrine-bundle',
+                '2.7',
+                'Passing a "shard" option for "%s" is deprecated. DBAL 3 does not support shards anymore.',
+                self::class
+            );
+        }
+
         $em = $this->getEntityManager($input->getOption('em'), $input->getOption('shard'));
 
         $databaseDriver = new DatabaseDriver($em->getConnection()->getSchemaManager());
@@ -142,12 +152,14 @@ EOT
                 } else {
                     $path = $destPath . '/' . str_replace('\\', '.', $className) . '.orm.' . $type;
                 }
+
                 $output->writeln(sprintf('  > writing <comment>%s</comment>', $path));
                 $code = $exporter->exportClassMetadata($class);
                 $dir  = dirname($path);
                 if (! is_dir($dir)) {
                     mkdir($dir, 0775, true);
                 }
+
                 file_put_contents($path, $code);
                 chmod($path, 0664);
             }

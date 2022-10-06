@@ -1,10 +1,12 @@
 <?= $helper->getHeadPrintCode('Register'); ?>
 
 {% block body %}
-    {% for flashError in app.flashes('verify_email_error') %}
-        <div class="alert alert-danger" role="alert">{{ flashError }}</div>
+<?php if ($will_verify_email): ?>
+    {% for flash_error in app.flashes('verify_email_error') %}
+        <div class="alert alert-danger" role="alert">{{ flash_error }}</div>
     {% endfor %}
 
+<?php endif; ?>
     <h1>Register</h1>
 
     {{ form_start(registrationForm) }}

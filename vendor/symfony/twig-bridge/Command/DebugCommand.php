@@ -33,6 +33,7 @@ use Twig\Loader\FilesystemLoader;
 class DebugCommand extends Command
 {
     protected static $defaultName = 'debug:twig';
+    protected static $defaultDescription = 'Show a list of twig functions, filters, globals and tests';
 
     private $twig;
     private $projectDir;
@@ -60,7 +61,7 @@ class DebugCommand extends Command
                 new InputOption('filter', null, InputOption::VALUE_REQUIRED, 'Show details for all entries matching this filter'),
                 new InputOption('format', null, InputOption::VALUE_REQUIRED, 'The output format (text or json)', 'text'),
             ])
-            ->setDescription('Shows a list of twig functions, filters, globals and tests')
+            ->setDescription(self::$defaultDescription)
             ->setHelp(<<<'EOF'
 The <info>%command.name%</info> command outputs a list of twig functions,
 filters, globals and tests.
@@ -147,7 +148,7 @@ EOF
                     $shortnames[] = str_replace('\\', '/', $file->getRelativePathname());
                 }
 
-                list($namespace, $shortname) = $this->parseTemplateName($name);
+                [$namespace, $shortname] = $this->parseTemplateName($name);
                 $alternatives = $this->findAlternatives($shortname, $shortnames);
                 if (FilesystemLoader::MAIN_NAMESPACE !== $namespace) {
                     $alternatives = array_map(function ($shortname) use ($namespace) {
@@ -211,7 +212,7 @@ EOF
         foreach ($types as $index => $type) {
             $items = [];
             foreach ($this->twig->{'get'.ucfirst($type)}() as $name => $entity) {
-                if (!$filter || false !== strpos($name, $filter)) {
+                if (!$filter || str_contains($name, $filter)) {
                     $items[$name] = $name.$this->getPrettyMetadata($type, $entity, $decorated);
                 }
             }
@@ -245,7 +246,7 @@ EOF
         $data = [];
         foreach ($types as $type) {
             foreach ($this->twig->{'get'.ucfirst($type)}() as $name => $entity) {
-                if (!$filter || false !== strpos($name, $filter)) {
+                if (!$filter || str_contains($name, $filter)) {
                     $data[$type][$name] = $this->getMetadata($type, $entity);
                 }
             }
@@ -262,7 +263,7 @@ EOF
             $data['warnings'] = $this->buildWarningMessages($wrongBundles);
         }
 
-        $data = json_encode($data, JSON_PRETTY_PRINT);
+        $data = json_encode($data, \JSON_PRETTY_PRINT);
         $io->writeln($decorated ? OutputFormatter::escape($data) : $data);
     }
 
@@ -392,10 +393,10 @@ EOF
         $bundleNames = [];
 
         if ($this->twigDefaultPath && $this->projectDir) {
-            $folders = glob($this->twigDefaultPath.'/bundles/*', GLOB_ONLYDIR);
+            $folders = glob($this->twigDefaultPath.'/bundles/*', \GLOB_ONLYDIR);
             $relativePath = ltrim(substr($this->twigDefaultPath.'/bundles/', \strlen($this->projectDir)), \DIRECTORY_SEPARATOR);
             $bundleNames = array_reduce($folders, function ($carry, $absolutePath) use ($relativePath) {
-                if (0 === strpos($absolutePath, $this->projectDir)) {
+                if (str_starts_with($absolutePath, $this->projectDir)) {
                     $name = basename($absolutePath);
                     $path = ltrim($relativePath.$name, \DIRECTORY_SEPARATOR);
                     $carry[$name] = $path;
@@ -452,7 +453,7 @@ EOF
 
     private function findTemplateFiles(string $name): array
     {
-        list($namespace, $shortname) = $this->parseTemplateName($name);
+        [$namespace, $shortname] = $this->parseTemplateName($name);
 
         $files = [];
         foreach ($this->getFilesystemLoaders() as $loader) {
@@ -525,21 +526,21 @@ EOF
         $alternatives = [];
         foreach ($collection as $item) {
             $lev = levenshtein($name, $item);
-            if ($lev <= \strlen($name) / 3 || false !== strpos($item, $name)) {
+            if ($lev <= \strlen($name) / 3 || str_contains($item, $name)) {
                 $alternatives[$item] = isset($alternatives[$item]) ? $alternatives[$item] - $lev : $lev;
             }
         }
 
         $threshold = 1e3;
         $alternatives = array_filter($alternatives, function ($lev) use ($threshold) { return $lev < 2 * $threshold; });
-        ksort($alternatives, SORT_NATURAL | SORT_FLAG_CASE);
+        ksort($alternatives, \SORT_NATURAL | \SORT_FLAG_CASE);
 
         return array_keys($alternatives);
     }
 
     private function getRelativePath(string $path): string
     {
-        if (null !== $this->projectDir && 0 === strpos($path, $this->projectDir)) {
+        if (null !== $this->projectDir && str_starts_with($path, $this->projectDir)) {
             return ltrim(substr($path, \strlen($this->projectDir)), \DIRECTORY_SEPARATOR);
         }
 
@@ -548,7 +549,7 @@ EOF
 
     private function isAbsolutePath(string $file): bool
     {
-        return strspn($file, '/\\', 0, 1) || (\strlen($file) > 3 && ctype_alpha($file[0]) && ':' === $file[1] && strspn($file, '/\\', 2, 1)) || null !== parse_url($file, PHP_URL_SCHEME);
+        return strspn($file, '/\\', 0, 1) || (\strlen($file) > 3 && ctype_alpha($file[0]) && ':' === $file[1] && strspn($file, '/\\', 2, 1)) || null !== parse_url($file, \PHP_URL_SCHEME);
     }
 
     /**

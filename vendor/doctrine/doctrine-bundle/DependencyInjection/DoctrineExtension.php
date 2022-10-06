@@ -2,22 +2,46 @@
 
 namespace Doctrine\Bundle\DoctrineBundle\DependencyInjection;
 
+use Doctrine\Bundle\DoctrineBundle\Attribute\AsEntityListener;
+use Doctrine\Bundle\DoctrineBundle\Attribute\AsMiddleware;
+use Doctrine\Bundle\DoctrineBundle\CacheWarmer\DoctrineMetadataCacheWarmer;
+use Doctrine\Bundle\DoctrineBundle\Command\Proxy\ImportDoctrineCommand;
+use Doctrine\Bundle\DoctrineBundle\Dbal\ManagerRegistryAwareConnectionProvider;
 use Doctrine\Bundle\DoctrineBundle\Dbal\RegexSchemaAssetFilter;
+use Doctrine\Bundle\DoctrineBundle\DependencyInjection\Compiler\IdGeneratorPass;
 use Doctrine\Bundle\DoctrineBundle\DependencyInjection\Compiler\ServiceRepositoryCompilerPass;
 use Doctrine\Bundle\DoctrineBundle\EventSubscriber\EventSubscriberInterface;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepositoryInterface;
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Connections\PrimaryReadReplicaConnection;
+use Doctrine\DBAL\Driver\Middleware as MiddlewareInterface;
+use Doctrine\DBAL\Logging\LoggerChain;
+use Doctrine\DBAL\Sharding\PoolingShardConnection;
+use Doctrine\DBAL\Sharding\PoolingShardManager;
+use Doctrine\DBAL\Tools\Console\Command\ImportCommand;
+use Doctrine\DBAL\Tools\Console\ConnectionProvider;
+use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\Id\AbstractIdGenerator;
 use Doctrine\ORM\Proxy\Autoloader;
+use Doctrine\ORM\Tools\Console\Command\ConvertMappingCommand;
+use Doctrine\ORM\Tools\Console\Command\EnsureProductionSettingsCommand;
+use Doctrine\ORM\Tools\Export\ClassMetadataExporter;
 use Doctrine\ORM\UnitOfWork;
 use LogicException;
 use Symfony\Bridge\Doctrine\DependencyInjection\AbstractDoctrineExtension;
+use Symfony\Bridge\Doctrine\IdGenerator\UlidGenerator;
+use Symfony\Bridge\Doctrine\IdGenerator\UuidGenerator;
 use Symfony\Bridge\Doctrine\Messenger\DoctrineClearEntityManagerWorkerSubscriber;
 use Symfony\Bridge\Doctrine\Messenger\DoctrineTransactionMiddleware;
+use Symfony\Bridge\Doctrine\Middleware\Debug\Middleware as SfDebugMiddleware;
 use Symfony\Bridge\Doctrine\PropertyInfo\DoctrineExtractor;
+use Symfony\Bridge\Doctrine\SchemaListener\DoctrineDbalCacheAdapterSchemaSubscriber;
 use Symfony\Bridge\Doctrine\SchemaListener\MessengerTransportDoctrineSchemaSubscriber;
 use Symfony\Bridge\Doctrine\SchemaListener\PdoCacheAdapterDoctrineSchemaSubscriber;
+use Symfony\Bridge\Doctrine\SchemaListener\RememberMeTokenProviderDoctrineSchemaSubscriber;
 use Symfony\Bridge\Doctrine\Validator\DoctrineLoader;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
-use Symfony\Component\Cache\DoctrineProvider;
+use Symfony\Component\Cache\Adapter\PhpArrayAdapter;
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\Alias;
 use Symfony\Component\DependencyInjection\ChildDefinition;
@@ -30,8 +54,20 @@ use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineTransportFactory;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\PropertyInfo\PropertyInfoExtractorInterface;
+use Symfony\Component\Validator\Mapping\Loader\LoaderInterface;
+
+use function array_intersect_key;
+use function array_keys;
 use function class_exists;
+use function interface_exists;
+use function is_dir;
+use function method_exists;
+use function reset;
 use function sprintf;
+use function str_replace;
+use function trigger_deprecation;
+
+use const PHP_VERSION_ID;
 
 /**
  * DoctrineExtension is an extension for the Doctrine DBAL and ORM library.
@@ -73,13 +109,18 @@ class DoctrineExtension extends AbstractDoctrineExtension
      *
      *      <doctrine:dbal id="myconn" dbname="sfweb" user="root" />
      *
-     * @param array            $config    An array of configuration settings
-     * @param ContainerBuilder $container A ContainerBuilder instance
+     * @param array<string, mixed> $config    An array of configuration settings
+     * @param ContainerBuilder     $container A ContainerBuilder instance
      */
     protected function dbalLoad(array $config, ContainerBuilder $container)
     {
         $loader = new XmlFileLoader($container, new FileLocator(__DIR__ . '/../Resources/config'));
         $loader->load('dbal.xml');
+
+        if (class_exists(ImportCommand::class)) {
+            $container->register('doctrine.database_import_command', ImportDoctrineCommand::class)
+                ->addTag('console.command', ['command' => 'doctrine:database:import']);
+        }
 
         if (empty($config['default_connection'])) {
             $keys                         = array_keys($config['connections']);
@@ -103,28 +144,68 @@ class DoctrineExtension extends AbstractDoctrineExtension
         $container->setParameter('doctrine.connections', $connections);
         $container->setParameter('doctrine.default_connection', $this->defaultConnection);
 
+        $connWithLogging   = [];
+        $connWithProfiling = [];
+        $connWithBacktrace = [];
         foreach ($config['connections'] as $name => $connection) {
+            if ($connection['logging']) {
+                $connWithLogging[] = $name;
+            }
+
+            if ($connection['profiling']) {
+                $connWithProfiling[] = $name;
+
+                if ($connection['profiling_collect_backtrace']) {
+                    $connWithBacktrace[] = $name;
+                }
+            }
+
             $this->loadDbalConnection($name, $connection, $container);
         }
+
+        /** @psalm-suppress UndefinedClass */
+        $container->registerForAutoconfiguration(MiddlewareInterface::class)->addTag('doctrine.middleware');
+
+        if (PHP_VERSION_ID >= 80000 && method_exists(ContainerBuilder::class, 'registerAttributeForAutoconfiguration')) {
+            $container->registerAttributeForAutoconfiguration(AsMiddleware::class, static function (ChildDefinition $definition, AsMiddleware $attribute) {
+                if ($attribute->connections === []) {
+                    $definition->addTag('doctrine.middleware');
+
+                    return;
+                }
+
+                foreach ($attribute->connections as $connName) {
+                    $definition->addTag('doctrine.middleware', ['connection' => $connName]);
+                }
+            });
+        }
+
+        $this->useMiddlewaresIfAvailable($container, $connWithLogging, $connWithProfiling, $connWithBacktrace);
     }
 
     /**
      * Loads a configured DBAL connection.
      *
-     * @param string           $name       The name of the connection
-     * @param array            $connection A dbal connection configuration.
-     * @param ContainerBuilder $container  A ContainerBuilder instance
+     * @param string               $name       The name of the connection
+     * @param array<string, mixed> $connection A dbal connection configuration.
+     * @param ContainerBuilder     $container  A ContainerBuilder instance
      */
     protected function loadDbalConnection($name, array $connection, ContainerBuilder $container)
     {
         $configuration = $container->setDefinition(sprintf('doctrine.dbal.%s_connection.configuration', $name), new ChildDefinition('doctrine.dbal.connection.configuration'));
         $logger        = null;
-        if ($connection['logging']) {
+
+        /** @psalm-suppress UndefinedClass */
+        if (! interface_exists(MiddlewareInterface::class) && $connection['logging']) {
             $logger = new Reference('doctrine.dbal.logger');
         }
+
         unset($connection['logging']);
 
-        if ($connection['profiling']) {
+        $dataCollectorDefinition = $container->getDefinition('data_collector.doctrine');
+        $dataCollectorDefinition->replaceArgument(1, $connection['profiling_collect_schema_errors']);
+
+        if (! $this->isSfDebugMiddlewareAvailable() && $connection['profiling']) {
             $profilingAbstractId = $connection['profiling_collect_backtrace'] ?
                 'doctrine.dbal.logger.backtrace' :
                 'doctrine.dbal.logger.profiling';
@@ -132,13 +213,14 @@ class DoctrineExtension extends AbstractDoctrineExtension
             $profilingLoggerId = $profilingAbstractId . '.' . $name;
             $container->setDefinition($profilingLoggerId, new ChildDefinition($profilingAbstractId));
             $profilingLogger = new Reference($profilingLoggerId);
-            $container->getDefinition('data_collector.doctrine')
-                ->addMethodCall('addLogger', [$name, $profilingLogger])
-                ->replaceArgument(1, $connection['profiling_collect_schema_errors']);
+            $dataCollectorDefinition->addMethodCall('addLogger', [$name, $profilingLogger]);
 
             if ($logger !== null) {
-                $chainLogger = new ChildDefinition('doctrine.dbal.logger.chain');
-                $chainLogger->addMethodCall('addLogger', [$profilingLogger]);
+                $chainLogger = $container->register(
+                    'doctrine.dbal.logger.chain',
+                    LoggerChain::class
+                );
+                $chainLogger->addArgument([$logger, $profilingLogger]);
 
                 $loggerId = 'doctrine.dbal.logger.chain.' . $name;
                 $container->setDefinition($loggerId, $chainLogger);
@@ -147,6 +229,7 @@ class DoctrineExtension extends AbstractDoctrineExtension
                 $logger = $profilingLogger;
             }
         }
+
         unset(
             $connection['profiling'],
             $connection['profiling_collect_backtrace'],
@@ -177,8 +260,10 @@ class DoctrineExtension extends AbstractDoctrineExtension
         // connection
         $options = $this->getConnectionOptions($connection);
 
+        $connectionId = sprintf('doctrine.dbal.%s_connection', $name);
+
         $def = $container
-            ->setDefinition(sprintf('doctrine.dbal.%s_connection', $name), new ChildDefinition('doctrine.dbal.connection'))
+            ->setDefinition($connectionId, new ChildDefinition('doctrine.dbal.connection'))
             ->setPublic(true)
             ->setArguments([
                 $options,
@@ -186,6 +271,10 @@ class DoctrineExtension extends AbstractDoctrineExtension
                 new Reference(sprintf('doctrine.dbal.%s_connection.event_manager', $name)),
                 $connection['mapping_types'],
             ]);
+
+        $container
+            ->registerAliasForArgument($connectionId, Connection::class, sprintf('%sConnection', $name))
+            ->setPublic(false);
 
         // Set class in case "wrapper_class" option was used to assist IDEs
         if (isset($options['wrapperClass'])) {
@@ -197,22 +286,63 @@ class DoctrineExtension extends AbstractDoctrineExtension
         }
 
         // Create a shard_manager for this connection
-        if (! isset($options['shards'])) {
+        if (isset($options['shards'])) {
+            trigger_deprecation(
+                'doctrine/doctrine-bundle',
+                '2.7',
+                'Using shards for connection "%s" is deprecated. DBAL 3 does not support shards anymore.',
+                $name
+            );
+            $shardManagerDefinition = new Definition($options['shardManagerClass'], [new Reference($connectionId)]);
+            $container->setDefinition(sprintf('doctrine.dbal.%s_shard_manager', $name), $shardManagerDefinition);
+        }
+
+        // dbal < 2.11 BC layer
+        if (! interface_exists(ConnectionProvider::class)) {
             return;
         }
 
-        $shardManagerDefinition = new Definition($options['shardManagerClass'], [new Reference(sprintf('doctrine.dbal.%s_connection', $name))]);
-        $container->setDefinition(sprintf('doctrine.dbal.%s_shard_manager', $name), $shardManagerDefinition);
+        $container->setDefinition(
+            ManagerRegistryAwareConnectionProvider::class,
+            new Definition(ManagerRegistryAwareConnectionProvider::class, [$container->getDefinition('doctrine')])
+        );
     }
 
-    protected function getConnectionOptions($connection)
+    /**
+     * @param array<string, mixed> $connection
+     *
+     * @return mixed[]
+     */
+    protected function getConnectionOptions(array $connection): array
     {
         $options = $connection;
+
+        $connectionDefaults = [
+            'host' => 'localhost',
+            'port' => null,
+            'user' => 'root',
+            'password' => null,
+        ];
+
+        if ($options['override_url'] ?? false) {
+            $options['connection_override_options'] = array_intersect_key($options, ['dbname' => null] + $connectionDefaults);
+        }
+
+        unset($options['override_url']);
+
+        $options += $connectionDefaults;
+
+        foreach (['shards', 'replicas', 'slaves'] as $connectionKey) {
+            foreach (array_keys($options[$connectionKey]) as $name) {
+                $options[$connectionKey][$name] += $connectionDefaults;
+            }
+        }
 
         if (isset($options['platform_service'])) {
             $options['platform'] = new Reference($options['platform_service']);
             unset($options['platform_service']);
         }
+
         unset($options['mapping_types']);
 
         if (isset($options['shard_choser_service'])) {
@@ -220,16 +350,20 @@ class DoctrineExtension extends AbstractDoctrineExtension
             unset($options['shard_choser_service']);
         }
 
-        foreach ([
-            'options' => 'driverOptions',
-            'driver_class' => 'driverClass',
-            'wrapper_class' => 'wrapperClass',
-            'keep_slave' => 'keepSlave',
-            'shard_choser' => 'shardChoser',
-            'shard_manager_class' => 'shardManagerClass',
-            'server_version' => 'serverVersion',
-            'default_table_options' => 'defaultTableOptions',
-        ] as $old => $new) {
+        foreach (
+            [
+                'options' => 'driverOptions',
+                'driver_class' => 'driverClass',
+                'wrapper_class' => 'wrapperClass',
+                'keep_slave' => 'keepReplica',
+                'keep_replica' => 'keepReplica',
+                'replicas' => 'replica',
+                'shard_choser' => 'shardChoser',
+                'shard_manager_class' => 'shardManagerClass',
+                'server_version' => 'serverVersion',
+                'default_table_options' => 'defaultTableOptions',
+            ] as $old => $new
+        ) {
             if (! isset($options[$old])) {
                 continue;
             }
@@ -238,21 +372,34 @@ class DoctrineExtension extends AbstractDoctrineExtension
             unset($options[$old]);
         }
 
-        if (! empty($options['slaves']) && ! empty($options['shards'])) {
-            throw new InvalidArgumentException('Sharding and master-slave connection cannot be used together');
+        if (! empty($options['slaves']) && ! empty($options['replica']) && ! empty($options['shards'])) {
+            throw new InvalidArgumentException('Sharding and primary-replica connection cannot be used together');
         }
 
-        if (! empty($options['slaves'])) {
+        foreach (['shards', 'replica', 'slaves'] as $connectionKey) {
+            foreach ($options[$connectionKey] as $name => $value) {
+                $driverOptions       = $value['driverOptions'] ?? [];
+                $parentDriverOptions = $options['driverOptions'] ?? [];
+                if ($driverOptions === [] && $parentDriverOptions === []) {
+                    continue;
+                }
+
+                $options[$connectionKey][$name]['driverOptions'] = $driverOptions + $parentDriverOptions;
+            }
+        }
+
+        if (! empty($options['slaves']) || ! empty($options['replica'])) {
             $nonRewrittenKeys = [
                 'driver' => true,
-                'driverOptions' => true,
                 'driverClass' => true,
                 'wrapperClass' => true,
                 'keepSlave' => true,
+                'keepReplica' => true,
                 'shardChoser' => true,
                 'platform' => true,
                 'slaves' => true,
-                'master' => true,
+                'primary' => true,
+                'replica' => true,
                 'shards' => true,
                 'serverVersion' => true,
                 'defaultTableOptions' => true,
@@ -266,15 +413,17 @@ class DoctrineExtension extends AbstractDoctrineExtension
                 if (isset($nonRewrittenKeys[$key])) {
                     continue;
                 }
-                $options['master'][$key] = $value;
+
+                $options['primary'][$key] = $value;
                 unset($options[$key]);
             }
+
             if (empty($options['wrapperClass'])) {
-                // Change the wrapper class only if the user does not already forced using a custom one.
-                $options['wrapperClass'] = 'Doctrine\\DBAL\\Connections\\MasterSlaveConnection';
+                // Change the wrapper class only if user did not configure custom one.
+                $options['wrapperClass'] = PrimaryReadReplicaConnection::class;
             }
         } else {
-            unset($options['slaves']);
+            unset($options['slaves'], $options['replica']);
         }
 
         if (! empty($options['shards'])) {
@@ -284,9 +433,11 @@ class DoctrineExtension extends AbstractDoctrineExtension
                 'driverClass' => true,
                 'wrapperClass' => true,
                 'keepSlave' => true,
+                'keepReplica' => true,
                 'shardChoser' => true,
                 'platform' => true,
                 'slaves' => true,
+                'replica' => true,
                 'global' => true,
                 'shards' => true,
                 'serverVersion' => true,
@@ -296,21 +447,25 @@ class DoctrineExtension extends AbstractDoctrineExtension
                 'profiling' => true,
                 'mapping_types' => true,
                 'platform_service' => true,
+                'shardManagerClass' => true,
             ];
             foreach ($options as $key => $value) {
                 if (isset($nonRewrittenKeys[$key])) {
                     continue;
                 }
+
                 $options['global'][$key] = $value;
                 unset($options[$key]);
             }
+
             if (empty($options['wrapperClass'])) {
                 // Change the wrapper class only if the user does not already forced using a custom one.
-                $options['wrapperClass'] = 'Doctrine\\DBAL\\Sharding\\PoolingShardConnection';
+                $options['wrapperClass'] = PoolingShardConnection::class;
             }
+
             if (empty($options['shardManagerClass'])) {
                 // Change the shard manager class only if the user does not already forced using a custom one.
-                $options['shardManagerClass'] = 'Doctrine\\DBAL\\Sharding\\PoolingShardManager';
+                $options['shardManagerClass'] = PoolingShardManager::class;
             }
         } else {
             unset($options['shards']);
@@ -326,8 +481,8 @@ class DoctrineExtension extends AbstractDoctrineExtension
      *
      *     <doctrine:orm id="mydm" connection="myconn" />
      *
-     * @param array            $config    An array of configuration settings
-     * @param ContainerBuilder $container A ContainerBuilder instance
+     * @param array<string, mixed> $config    An array of configuration settings
+     * @param ContainerBuilder     $container A ContainerBuilder instance
      */
     protected function ormLoad(array $config, ContainerBuilder $container)
     {
@@ -342,21 +497,54 @@ class DoctrineExtension extends AbstractDoctrineExtension
             $container->getDefinition('form.type.entity')->addTag('kernel.reset', ['method' => 'reset']);
         }
 
-        // available in Symfony 5.1 and higher
+        // available in Symfony 5.4 and higher
+        if (! class_exists(DoctrineDbalCacheAdapterSchemaSubscriber::class)) {
+            $container->removeDefinition('doctrine.orm.listeners.doctrine_dbal_cache_adapter_schema_subscriber');
+        }
+
+        // available in Symfony 5.1 and up to Symfony 5.4 (deprecated)
         if (! class_exists(PdoCacheAdapterDoctrineSchemaSubscriber::class)) {
             $container->removeDefinition('doctrine.orm.listeners.pdo_cache_adapter_doctrine_schema_subscriber');
+        }
+
+        // available in Symfony 5.3 and higher
+        if (! class_exists(RememberMeTokenProviderDoctrineSchemaSubscriber::class)) {
+            $container->removeDefinition('doctrine.orm.listeners.doctrine_token_provider_schema_subscriber');
+        }
+
+        if (! class_exists(UlidGenerator::class)) {
+            $container->removeDefinition('doctrine.ulid_generator');
+        }
+
+        if (! class_exists(UuidGenerator::class)) {
+            $container->removeDefinition('doctrine.uuid_generator');
+        }
+
+        // not available in Doctrine ORM 3.0 and higher
+        if (! class_exists(ConvertMappingCommand::class)) {
+            $container->removeDefinition('doctrine.mapping_convert_command');
+        }
+
+        if (! class_exists(EnsureProductionSettingsCommand::class)) {
+            $container->removeDefinition('doctrine.ensure_production_settings_command');
+        }
+
+        if (! class_exists(ClassMetadataExporter::class)) {
+            $container->removeDefinition('doctrine.mapping_import_command');
         }
 
         $entityManagers = [];
         foreach (array_keys($config['entity_managers']) as $name) {
             $entityManagers[$name] = sprintf('doctrine.orm.%s_entity_manager', $name);
         }
+
         $container->setParameter('doctrine.entity_managers', $entityManagers);
 
         if (empty($config['default_entity_manager'])) {
             $tmp                              = array_keys($entityManagers);
             $config['default_entity_manager'] = reset($tmp);
         }
+
         $container->setParameter('doctrine.default_entity_manager', $config['default_entity_manager']);
 
         $options = ['auto_generate_proxy_classes', 'proxy_dir', 'proxy_namespace'];
@@ -375,6 +563,10 @@ class DoctrineExtension extends AbstractDoctrineExtension
 
             if (interface_exists(PropertyInfoExtractorInterface::class)) {
                 $this->loadPropertyInfoExtractor($name, $container);
+            }
+
+            if (! interface_exists(LoaderInterface::class)) {
+                continue;
             }
 
             $this->loadValidatorLoader($name, $container);
@@ -399,9 +591,22 @@ class DoctrineExtension extends AbstractDoctrineExtension
         $container->registerForAutoconfiguration(EventSubscriberInterface::class)
             ->addTag('doctrine.event_subscriber');
 
-        /**
-         * @see DoctrineBundle::boot()
-         */
+        $container->registerForAutoconfiguration(AbstractIdGenerator::class)
+            ->addTag(IdGeneratorPass::ID_GENERATOR_TAG);
+
+        if (method_exists($container, 'registerAttributeForAutoconfiguration')) {
+            $container->registerAttributeForAutoconfiguration(AsEntityListener::class, static function (ChildDefinition $definition, AsEntityListener $attribute) {
+                $definition->addTag('doctrine.orm.entity_listener', [
+                    'event'          => $attribute->event,
+                    'method'         => $attribute->method,
+                    'lazy'           => $attribute->lazy,
+                    'entity_manager' => $attribute->entityManager,
+                    'entity'         => $attribute->entity,
+                ]);
+            });
+        }
+
+        /** @see DoctrineBundle::boot() */
         $container->getDefinition($defaultEntityManagerDefinitionId)
             ->addTag('container.preload', [
                 'class' => Autoloader::class,
@@ -411,12 +616,13 @@ class DoctrineExtension extends AbstractDoctrineExtension
     /**
      * Loads a configured ORM entity manager.
      *
-     * @param array            $entityManager A configured ORM entity manager.
-     * @param ContainerBuilder $container     A ContainerBuilder instance
+     * @param array<string, mixed> $entityManager A configured ORM entity manager.
+     * @param ContainerBuilder     $container     A ContainerBuilder instance
      */
     protected function loadOrmEntityManager(array $entityManager, ContainerBuilder $container)
     {
         $ormConfigDef = $container->setDefinition(sprintf('doctrine.orm.%s_configuration', $entityManager['name']), new ChildDefinition('doctrine.orm.configuration'));
+        $ormConfigDef->addTag(IdGeneratorPass::CONFIGURATION_TAG);
 
         $this->loadOrmEntityManagerMappingInformation($entityManager, $ormConfigDef, $container);
         $this->loadOrmCacheDrivers($entityManager, $container);
@@ -430,13 +636,14 @@ class DoctrineExtension extends AbstractDoctrineExtension
         }
 
         $methods = [
-            'setMetadataCacheImpl' => new Reference(sprintf('doctrine.orm.%s_metadata_cache', $entityManager['name'])),
-            'setQueryCacheImpl' => new Reference(sprintf('doctrine.orm.%s_query_cache', $entityManager['name'])),
-            'setResultCacheImpl' => new Reference(sprintf('doctrine.orm.%s_result_cache', $entityManager['name'])),
+            'setMetadataCache' => new Reference(sprintf('doctrine.orm.%s_metadata_cache', $entityManager['name'])),
+            'setQueryCache' => new Reference(sprintf('doctrine.orm.%s_query_cache', $entityManager['name'])),
+            'setResultCache' => new Reference(sprintf('doctrine.orm.%s_result_cache', $entityManager['name'])),
             'setMetadataDriverImpl' => new Reference('doctrine.orm.' . $entityManager['name'] . '_metadata_driver'),
             'setProxyDir' => '%doctrine.orm.proxy_dir%',
             'setProxyNamespace' => '%doctrine.orm.proxy_namespace%',
             'setAutoGenerateProxyClasses' => '%doctrine.orm.auto_generate_proxy_classes%',
+            'setSchemaIgnoreClasses' => $entityManager['schema_ignore_classes'],
             'setClassMetadataFactoryName' => $entityManager['class_metadata_factory_name'],
             'setDefaultRepositoryClassName' => $entityManager['default_repository_class'],
             'setNamingStrategy' => new Reference($entityManager['naming_strategy']),
@@ -450,6 +657,7 @@ class DoctrineExtension extends AbstractDoctrineExtension
         if (isset($entityManager['connection'])) {
             $listenerTagParams['connection'] = $entityManager['connection'];
         }
+
         $listenerDef->addTag('doctrine.event_listener', $listenerTagParams);
 
         if (isset($entityManager['second_level_cache'])) {
@@ -472,9 +680,11 @@ class DoctrineExtension extends AbstractDoctrineExtension
             foreach ($entityManager['dql']['string_functions'] as $name => $function) {
                 $ormConfigDef->addMethodCall('addCustomStringFunction', [$name, $function]);
             }
+
             foreach ($entityManager['dql']['numeric_functions'] as $name => $function) {
                 $ormConfigDef->addMethodCall('addCustomNumericFunction', [$name, $function]);
             }
+
             foreach ($entityManager['dql']['datetime_functions'] as $name => $function) {
                 $ormConfigDef->addMethodCall('addCustomDatetimeFunction', [$name, $function]);
             }
@@ -487,6 +697,7 @@ class DoctrineExtension extends AbstractDoctrineExtension
             if ($filter['enabled']) {
                 $enabledFilters[] = $name;
             }
+
             if (! $filter['parameters']) {
                 continue;
             }
@@ -504,14 +715,20 @@ class DoctrineExtension extends AbstractDoctrineExtension
             $entityManager['connection'] = $this->defaultConnection;
         }
 
+        $entityManagerId = sprintf('doctrine.orm.%s_entity_manager', $entityManager['name']);
+
         $container
-            ->setDefinition(sprintf('doctrine.orm.%s_entity_manager', $entityManager['name']), new ChildDefinition('doctrine.orm.entity_manager.abstract'))
+            ->setDefinition($entityManagerId, new ChildDefinition('doctrine.orm.entity_manager.abstract'))
             ->setPublic(true)
             ->setArguments([
                 new Reference(sprintf('doctrine.dbal.%s_connection', $entityManager['connection'])),
                 new Reference(sprintf('doctrine.orm.%s_configuration', $entityManager['name'])),
             ])
             ->setConfigurator([new Reference($managerConfiguratorName), 'configure']);
+
+        $container
+            ->registerAliasForArgument($entityManagerId, EntityManagerInterface::class, sprintf('%sEntityManager', $entityManager['name']))
+            ->setPublic(false);
 
         $container->setAlias(
             sprintf('doctrine.orm.%s_entity_manager.event_manager', $entityManager['name']),
@@ -520,10 +737,6 @@ class DoctrineExtension extends AbstractDoctrineExtension
 
         if (! isset($entityManager['entity_listeners'])) {
             return;
-        }
-
-        if (! isset($listenerDef)) {
-            throw new InvalidArgumentException('Entity listeners configuration requires doctrine-orm 2.5.0 or newer');
         }
 
         $entities = $entityManager['entity_listeners']['entities'];
@@ -553,9 +766,9 @@ class DoctrineExtension extends AbstractDoctrineExtension
      * 1. Specify a bundle and optionally details where the entity and mapping information reside.
      * 2. Specify an arbitrary mapping location.
      *
-     * @param array            $entityManager A configured ORM entity manager
-     * @param Definition       $ormConfigDef  A Definition instance
-     * @param ContainerBuilder $container     A ContainerBuilder instance
+     * @param array<string, mixed> $entityManager A configured ORM entity manager
+     * @param Definition           $ormConfigDef  A Definition instance
+     * @param ContainerBuilder     $container     A ContainerBuilder instance
      *
      * @example
      *
@@ -565,7 +778,8 @@ class DoctrineExtension extends AbstractDoctrineExtension
      *         MyBundle2: yml
      *         MyBundle3: { type: annotation, dir: Entities/ }
      *         MyBundle4: { type: xml, dir: Resources/config/doctrine/mapping }
-     *         MyBundle5:
+     *         MyBundle5: { type: attribute, dir: Entities/ }
+     *         MyBundle6:
      *             type: yml
      *             dir: bundle-mappings/
      *             alias: BundleAlias
@@ -593,14 +807,16 @@ class DoctrineExtension extends AbstractDoctrineExtension
     /**
      * Loads an ORM second level cache bundle mapping information.
      *
-     * @param array            $entityManager A configured ORM entity manager
-     * @param Definition       $ormConfigDef  A Definition instance
-     * @param ContainerBuilder $container     A ContainerBuilder instance
+     * @param array<string, mixed> $entityManager A configured ORM entity manager
+     * @param Definition           $ormConfigDef  A Definition instance
+     * @param ContainerBuilder     $container     A ContainerBuilder instance
      *
      * @example
      *  entity_managers:
      *      default:
      *          second_level_cache:
+     *              region_lifetime: 3600
+     *              region_lock_lifetime: 60
      *              region_cache_driver: apc
      *              log_enabled: true
      *              regions:
@@ -633,10 +849,12 @@ class DoctrineExtension extends AbstractDoctrineExtension
         $regionsId  = sprintf('doctrine.orm.%s_second_level_cache.regions_configuration', $entityManager['name']);
         $driverId   = $driverId ?: sprintf('doctrine.orm.%s_second_level_cache.region_cache_driver', $entityManager['name']);
         $configDef  = $container->setDefinition($configId, new Definition('%doctrine.orm.second_level_cache.cache_configuration.class%'));
-        $regionsDef = $container->setDefinition($regionsId, new Definition('%doctrine.orm.second_level_cache.regions_configuration.class%'));
+        $regionsDef = $container
+            ->setDefinition($regionsId, new Definition('%doctrine.orm.second_level_cache.regions_configuration.class%'))
+            ->setArguments([$entityManager['second_level_cache']['region_lifetime'], $entityManager['second_level_cache']['region_lock_lifetime']]);
 
         $slcFactoryId = sprintf('doctrine.orm.%s_second_level_cache.default_cache_factory', $entityManager['name']);
-        $factoryClass = isset($entityManager['second_level_cache']['factory']) ? $entityManager['second_level_cache']['factory'] : '%doctrine.orm.second_level_cache.default_cache_factory.class%';
+        $factoryClass = $entityManager['second_level_cache']['factory'] ?? '%doctrine.orm.second_level_cache.default_cache_factory.class%';
 
         $definition = new Definition($factoryClass, [new Reference($regionsId), new Reference($driverId)]);
 
@@ -710,28 +928,26 @@ class DoctrineExtension extends AbstractDoctrineExtension
     /**
      * {@inheritDoc}
      */
-    protected function getObjectManagerElementName($name) : string
+    protected function getObjectManagerElementName($name): string
     {
         return 'doctrine.orm.' . $name;
     }
 
-    protected function getMappingObjectDefaultName() : string
+    protected function getMappingObjectDefaultName(): string
     {
         return 'Entity';
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    protected function getMappingResourceConfigDirectory() : string
+    protected function getMappingResourceConfigDirectory(?string $bundleDir = null): string
     {
+        if ($bundleDir !== null && is_dir($bundleDir . '/config/doctrine')) {
+            return 'config/doctrine';
+        }
+
         return 'Resources/config/doctrine';
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    protected function getMappingResourceExtension() : string
+    protected function getMappingResourceExtension(): string
     {
         return 'orm';
     }
@@ -739,10 +955,9 @@ class DoctrineExtension extends AbstractDoctrineExtension
     /**
      * {@inheritDoc}
      */
-    protected function loadCacheDriver($cacheName, $objectManagerName, array $cacheDriver, ContainerBuilder $container) : string
+    protected function loadCacheDriver($cacheName, $objectManagerName, array $cacheDriver, ContainerBuilder $container): string
     {
-        $serviceId = null;
-        $aliasId   = $this->getObjectManagerElementName(sprintf('%s_%s', $objectManagerName, $cacheName));
+        $aliasId = $this->getObjectManagerElementName(sprintf('%s_%s', $objectManagerName, $cacheName));
 
         switch ($cacheDriver['type'] ?? 'pool') {
             case 'service':
@@ -750,7 +965,7 @@ class DoctrineExtension extends AbstractDoctrineExtension
                 break;
 
             case 'pool':
-                $serviceId = $this->createPoolCacheDefinition($container, $cacheDriver['pool'] ?? $this->createArrayAdapterCachePool($container, $objectManagerName, $cacheName));
+                $serviceId = $cacheDriver['pool'] ?? $this->createArrayAdapterCachePool($container, $objectManagerName, $cacheName);
                 break;
 
             default:
@@ -770,20 +985,46 @@ class DoctrineExtension extends AbstractDoctrineExtension
     /**
      * Loads a configured entity managers cache drivers.
      *
-     * @param array            $entityManager A configured ORM entity manager.
-     * @param ContainerBuilder $container     A ContainerBuilder instance
+     * @param array<string, mixed> $entityManager A configured ORM entity manager.
      */
     protected function loadOrmCacheDrivers(array $entityManager, ContainerBuilder $container)
     {
-        $this->loadCacheDriver('metadata_cache', $entityManager['name'], $entityManager['metadata_cache_driver'], $container);
+        if (isset($entityManager['metadata_cache_driver'])) {
+            $this->loadCacheDriver('metadata_cache', $entityManager['name'], $entityManager['metadata_cache_driver'], $container);
+        } else {
+            $this->createMetadataCache($entityManager['name'], $container);
+        }
+
         $this->loadCacheDriver('result_cache', $entityManager['name'], $entityManager['result_cache_driver'], $container);
         $this->loadCacheDriver('query_cache', $entityManager['name'], $entityManager['query_cache_driver'], $container);
+    }
+
+    private function createMetadataCache(string $objectManagerName, ContainerBuilder $container): void
+    {
+        $aliasId = $this->getObjectManagerElementName(sprintf('%s_%s', $objectManagerName, 'metadata_cache'));
+        $cacheId = sprintf('cache.doctrine.orm.%s.%s', $objectManagerName, 'metadata');
+
+        $cache = new Definition(ArrayAdapter::class);
+
+        if (! $container->getParameter('kernel.debug')) {
+            $phpArrayFile         = '%kernel.cache_dir%' . sprintf('/doctrine/orm/%s_metadata.php', $objectManagerName);
+            $cacheWarmerServiceId = $this->getObjectManagerElementName(sprintf('%s_%s', $objectManagerName, 'metadata_cache_warmer'));
+
+            $container->register($cacheWarmerServiceId, DoctrineMetadataCacheWarmer::class)
+                ->setArguments([new Reference(sprintf('doctrine.orm.%s_entity_manager', $objectManagerName)), $phpArrayFile])
+                ->addTag('kernel.cache_warmer', ['priority' => 1000]); // priority should be higher than ProxyCacheWarmer
+
+            $cache = new Definition(PhpArrayAdapter::class, [$phpArrayFile, $cache]);
+        }
+
+        $container->setDefinition($cacheId, $cache);
+        $container->setAlias($aliasId, $cacheId);
     }
 
     /**
      * Loads a property info extractor for each defined entity manager.
      */
-    private function loadPropertyInfoExtractor(string $entityManagerName, ContainerBuilder $container) : void
+    private function loadPropertyInfoExtractor(string $entityManagerName, ContainerBuilder $container): void
     {
         $propertyExtractorDefinition = $container->register(sprintf('doctrine.orm.%s_entity_manager.property_info_extractor', $entityManagerName), DoctrineExtractor::class);
         $argumentId                  = sprintf('doctrine.orm.%s_entity_manager', $entityManagerName);
@@ -798,7 +1039,7 @@ class DoctrineExtension extends AbstractDoctrineExtension
     /**
      * Loads a validator loader for each defined entity manager.
      */
-    private function loadValidatorLoader(string $entityManagerName, ContainerBuilder $container) : void
+    private function loadValidatorLoader(string $entityManagerName, ContainerBuilder $container): void
     {
         $validatorLoaderDefinition = $container->register(sprintf('doctrine.orm.%s_entity_manager.validator_loader', $entityManagerName), DoctrineLoader::class);
         $validatorLoaderDefinition->addArgument(new Reference(sprintf('doctrine.orm.%s_entity_manager', $entityManagerName)));
@@ -807,26 +1048,22 @@ class DoctrineExtension extends AbstractDoctrineExtension
     }
 
     /**
-     * @param array  $objectManager
-     * @param string $cacheName
+     * @param array<string, mixed> $objectManager
+     * @param string               $cacheName
+     *
+     * @psalm-suppress MoreSpecificImplementedParamType
      */
     public function loadObjectManagerCacheDriver(array $objectManager, ContainerBuilder $container, $cacheName)
     {
         $this->loadCacheDriver($cacheName, $objectManager['name'], $objectManager[$cacheName . '_driver'], $container);
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    public function getXsdValidationBasePath() : string
+    public function getXsdValidationBasePath(): string
     {
         return __DIR__ . '/../Resources/config/schema';
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    public function getNamespace() : string
+    public function getNamespace(): string
     {
         return 'http://symfony.com/schema/dic/doctrine';
     }
@@ -834,19 +1071,20 @@ class DoctrineExtension extends AbstractDoctrineExtension
     /**
      * {@inheritDoc}
      */
-    public function getConfiguration(array $config, ContainerBuilder $container) : Configuration
+    public function getConfiguration(array $config, ContainerBuilder $container): Configuration
     {
-        return new Configuration($container->getParameter('kernel.debug'));
+        return new Configuration((bool) $container->getParameter('kernel.debug'));
     }
 
-    protected function getMetadataDriverClass(string $driverType) : string
+    protected function getMetadataDriverClass(string $driverType): string
     {
-        return '%' . $this->getObjectManagerElementName('metadata.' . $driverType . '.class%');
+        return '%' . $this->getObjectManagerElementName('metadata.' . $driverType . '.class') . '%';
     }
 
-    private function loadMessengerServices(ContainerBuilder $container) : void
+    private function loadMessengerServices(ContainerBuilder $container): void
     {
         // If the Messenger component is installed and the doctrine transaction middleware is available, wire it:
+        /** @psalm-suppress UndefinedClass Optional dependency */
         if (! interface_exists(MessageBusInterface::class) || ! class_exists(DoctrineTransactionMiddleware::class)) {
             return;
         }
@@ -877,18 +1115,7 @@ class DoctrineExtension extends AbstractDoctrineExtension
         $transportFactoryDefinition->addTag('messenger.transport_factory');
     }
 
-    private function createPoolCacheDefinition(ContainerBuilder $container, string $poolName) : string
-    {
-        $serviceId = sprintf('doctrine.orm.cache.provider.%s', $poolName);
-
-        $definition = $container->register($serviceId, DoctrineProvider::class);
-        $definition->addArgument(new Reference($poolName));
-        $definition->setPrivate(true);
-
-        return $serviceId;
-    }
-
-    private function createArrayAdapterCachePool(ContainerBuilder $container, string $objectManagerName, string $cacheName) : string
+    private function createArrayAdapterCachePool(ContainerBuilder $container, string $objectManagerName, string $cacheName): string
     {
         $id = sprintf('cache.doctrine.orm.%s.%s', $objectManagerName, str_replace('_cache', '', $cacheName));
 
@@ -897,5 +1124,52 @@ class DoctrineExtension extends AbstractDoctrineExtension
         $container->setDefinition($id, $poolDefinition);
 
         return $id;
+    }
+
+    /**
+     * @param string[] $connWithLogging
+     * @param string[] $connWithProfiling
+     * @param string[] $connWithBacktrace
+     */
+    private function useMiddlewaresIfAvailable(
+        ContainerBuilder $container,
+        array $connWithLogging,
+        array $connWithProfiling,
+        array $connWithBacktrace
+    ): void {
+        /** @psalm-suppress UndefinedClass */
+        if (! interface_exists(MiddlewareInterface::class)) {
+            return;
+        }
+
+        $loader = new XmlFileLoader($container, new FileLocator(__DIR__ . '/../Resources/config'));
+        $loader->load('middlewares.xml');
+
+        $container
+            ->getDefinition('doctrine.dbal.logger')
+            ->replaceArgument(0, null);
+
+        $loggingMiddlewareAbstractDef = $container->getDefinition('doctrine.dbal.logging_middleware');
+        foreach ($connWithLogging as $connName) {
+            $loggingMiddlewareAbstractDef->addTag('doctrine.middleware', ['connection' => $connName]);
+        }
+
+        if ($this->isSfDebugMiddlewareAvailable()) {
+            $container->getDefinition('doctrine.debug_data_holder')->replaceArgument(0, $connWithBacktrace);
+            $debugMiddlewareAbstractDef = $container->getDefinition('doctrine.dbal.debug_middleware');
+            foreach ($connWithProfiling as $connName) {
+                $debugMiddlewareAbstractDef
+                    ->addTag('doctrine.middleware', ['connection' => $connName]);
+            }
+        } else {
+            $container->removeDefinition('doctrine.dbal.debug_middleware');
+            $container->removeDefinition('doctrine.debug_data_holder');
+        }
+    }
+
+    private function isSfDebugMiddlewareAvailable(): bool
+    {
+        /** @psalm-suppress UndefinedClass */
+        return interface_exists(MiddlewareInterface::class) && class_exists(SfDebugMiddleware::class);
     }
 }

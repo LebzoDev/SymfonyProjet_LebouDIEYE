@@ -12,13 +12,9 @@
 namespace Symfony\Flex\Command;
 
 use Composer\Command\BaseCommand;
-use Composer\Config\JsonConfigSource;
 use Composer\Factory;
 use Composer\Installer;
-use Composer\Json\JsonFile;
-use Composer\Package\Locker;
 use Composer\Package\Version\VersionParser;
-use Composer\Plugin\PluginInterface;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -27,6 +23,9 @@ use Symfony\Flex\PackageResolver;
 use Symfony\Flex\Unpack\Operation;
 use Symfony\Flex\Unpacker;
 
+/**
+ * @deprecated since Flex 1.4
+ */
 class UnpackCommand extends BaseCommand
 {
     private $resolver;
@@ -42,7 +41,7 @@ class UnpackCommand extends BaseCommand
     {
         $this->setName('symfony:unpack')
             ->setAliases(['unpack'])
-            ->setDescription('Unpacks a Symfony pack.')
+            ->setDescription('[DEPRECATED] Unpacks a Symfony pack.')
             ->setDefinition([
                 new InputArgument('packages', InputArgument::IS_ARRAY | InputArgument::REQUIRED, 'Installed packages to unpack.'),
                 new InputOption('sort-packages', null, InputOption::VALUE_NONE, 'Sorts packages'),
@@ -55,12 +54,12 @@ class UnpackCommand extends BaseCommand
         $composer = $this->getComposer();
         $packages = $this->resolver->resolve($input->getArgument('packages'), true);
         $io = $this->getIO();
-        $json = new JsonFile(Factory::getComposerFile());
-        $manipulator = new JsonConfigSource($json);
-        $locker = $composer->getLocker();
-        $lockData = $locker->getLockData();
+        $lockData = $composer->getLocker()->getLockData();
         $installedRepo = $composer->getRepositoryManager()->getLocalRepository();
         $versionParser = new VersionParser();
+        $dryRun = $input->hasOption('dry-run') && $input->getOption('dry-run');
+
+        $io->writeError('<warning>Command "symfony:unpack" is deprecated, Symfony packs are always unpacked now.</>');
 
         $op = new Operation(true, $input->getOption('sort-packages') || $composer->getConfig()->get('sort-packages'));
         foreach ($versionParser->parseNameVersionPairs($packages) as $package) {
@@ -82,59 +81,53 @@ class UnpackCommand extends BaseCommand
             $op->addPackage($pkg->getName(), $pkg->getVersion(), $dev);
         }
 
-        $unpacker = new Unpacker($composer, $this->resolver);
+        $unpacker = new Unpacker($composer, $this->resolver, $dryRun);
         $result = $unpacker->unpack($op);
 
         // remove the packages themselves
         if (!$result->getUnpacked()) {
             $io->writeError('<info>Nothing to unpack</>');
 
-            return 1;
+            return 0;
         }
 
+        $io->writeError('<info>Unpacking Symfony packs</>');
         foreach ($result->getUnpacked() as $pkg) {
-            $io->writeError(sprintf('<info>Unpacked %s dependencies</>', $pkg->getName()));
+            $io->writeError(sprintf('  - Unpacked <info>%s</>', $pkg->getName()));
         }
 
-        foreach ($result->getUnpacked() as $package) {
-            $manipulator->removeLink('require-dev', $package->getName());
-            foreach ($lockData['packages-dev'] as $i => $pkg) {
-                if ($package->getName() === $pkg['name']) {
-                    unset($lockData['packages-dev'][$i]);
-                }
-            }
-            $manipulator->removeLink('require', $package->getName());
-            foreach ($lockData['packages'] as $i => $pkg) {
-                if ($package->getName() === $pkg['name']) {
-                    unset($lockData['packages'][$i]);
-                }
-            }
-        }
-        $lockData['packages'] = array_values($lockData['packages']);
-        $lockData['packages-dev'] = array_values($lockData['packages-dev']);
-        $lockData['content-hash'] = $locker->getContentHash(file_get_contents($json->getPath()));
-        $lockFile = new JsonFile(substr($json->getPath(), 0, -4).'lock', null, $io);
-        $lockFile->write($lockData);
+        $unpacker->updateLock($result, $io);
 
-        // force removal of files under vendor/
-        if (version_compare('2.0.0', PluginInterface::PLUGIN_API_VERSION, '>')) {
-            $locker = new Locker($io, $lockFile, $composer->getRepositoryManager(), $composer->getInstallationManager(), file_get_contents($json->getPath()));
-        } else {
-            $locker = new Locker($io, $lockFile, $composer->getInstallationManager(), file_get_contents($json->getPath()));
+        if ($input->hasOption('no-install') && $input->getOption('no-install')) {
+            return 0;
         }
-        $composer->setLocker($locker);
-        $install = Installer::create($io, $composer);
-        $install
+
+        $composer = Factory::create($io, null, true);
+        $installer = Installer::create($io, $composer);
+        $installer
+            ->setDryRun($dryRun)
             ->setDevMode(true)
             ->setDumpAutoloader(false)
-            ->setRunScripts(false)
             ->setIgnorePlatformRequirements(true)
+            ->setUpdate(true)
         ;
 
-        if (method_exists($install, 'setSkipSuggest')) {
-            $install->setSkipSuggest(true);
+        if (method_exists($installer, 'setUpdateAllowList')) {
+            $installer->setUpdateAllowList(['php']);
+        } else {
+            $installer->setUpdateWhiteList(['php']);
         }
 
-        return $install->run();
+        if (method_exists($composer->getEventDispatcher(), 'setRunScripts')) {
+            $composer->getEventDispatcher()->setRunScripts(false);
+        } else {
+            $installer->setRunScripts(false);
+        }
+
+        if (method_exists($installer, 'setSkipSuggest')) {
+            $installer->setSkipSuggest(true);
+        }
+
+        return $installer->run();
     }
 }

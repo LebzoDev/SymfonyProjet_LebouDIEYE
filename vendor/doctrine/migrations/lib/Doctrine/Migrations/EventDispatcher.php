@@ -6,11 +6,10 @@ namespace Doctrine\Migrations;
 
 use Doctrine\Common\EventArgs;
 use Doctrine\Common\EventManager;
-use Doctrine\DBAL\Connection;
+use Doctrine\Migrations\Configuration\Configuration;
 use Doctrine\Migrations\Event\MigrationsEventArgs;
 use Doctrine\Migrations\Event\MigrationsVersionEventArgs;
-use Doctrine\Migrations\Metadata\MigrationPlan;
-use Doctrine\Migrations\Metadata\MigrationPlanList;
+use Doctrine\Migrations\Version\Version;
 
 /**
  * The EventDispatcher class is responsible for dispatching events internally that a user can listen for.
@@ -19,61 +18,60 @@ use Doctrine\Migrations\Metadata\MigrationPlanList;
  */
 final class EventDispatcher
 {
+    /** @var Configuration */
+    private $configuration;
+
     /** @var EventManager */
     private $eventManager;
 
-    /** @var Connection */
-    private $connection;
-
-    public function __construct(Connection $connection, EventManager $eventManager)
+    public function __construct(Configuration $configuration, EventManager $eventManager)
     {
-        $this->eventManager = $eventManager;
-        $this->connection   = $connection;
+        $this->configuration = $configuration;
+        $this->eventManager  = $eventManager;
     }
 
-    public function dispatchMigrationEvent(
-        string $eventName,
-        MigrationPlanList $migrationsPlan,
-        MigratorConfiguration $migratorConfiguration
-    ) : void {
-        $event = $this->createMigrationEventArgs($migrationsPlan, $migratorConfiguration);
+    public function dispatchMigrationEvent(string $eventName, string $direction, bool $dryRun): void
+    {
+        $event = $this->createMigrationEventArgs($direction, $dryRun);
 
         $this->dispatchEvent($eventName, $event);
     }
 
     public function dispatchVersionEvent(
+        Version $version,
         string $eventName,
-        MigrationPlan $plan,
-        MigratorConfiguration $migratorConfiguration
-    ) : void {
+        string $direction,
+        bool $dryRun
+    ): void {
         $event = $this->createMigrationsVersionEventArgs(
-            $plan,
-            $migratorConfiguration
+            $version,
+            $direction,
+            $dryRun
         );
 
         $this->dispatchEvent($eventName, $event);
     }
 
-    private function dispatchEvent(string $eventName, ?EventArgs $args = null) : void
+    public function dispatchEvent(string $eventName, ?EventArgs $args = null): void
     {
         $this->eventManager->dispatchEvent($eventName, $args);
     }
 
-    private function createMigrationEventArgs(
-        MigrationPlanList $migrationsPlan,
-        MigratorConfiguration $migratorConfiguration
-    ) : MigrationsEventArgs {
-        return new MigrationsEventArgs($this->connection, $migrationsPlan, $migratorConfiguration);
+    private function createMigrationEventArgs(string $direction, bool $dryRun): MigrationsEventArgs
+    {
+        return new MigrationsEventArgs($this->configuration, $direction, $dryRun);
     }
 
     private function createMigrationsVersionEventArgs(
-        MigrationPlan $plan,
-        MigratorConfiguration $migratorConfiguration
-    ) : MigrationsVersionEventArgs {
+        Version $version,
+        string $direction,
+        bool $dryRun
+    ): MigrationsVersionEventArgs {
         return new MigrationsVersionEventArgs(
-            $this->connection,
-            $plan,
-            $migratorConfiguration
+            $version,
+            $this->configuration,
+            $direction,
+            $dryRun
         );
     }
 }

@@ -13,16 +13,13 @@ use function rtrim;
 final class GlobFinder extends Finder
 {
     /**
-     * {@inheritDoc}
+     * @return string[]
      */
-    public function findMigrations(string $directory, ?string $namespace = null) : array
+    public function findMigrations(string $directory, ?string $namespace = null): array
     {
         $dir = $this->getRealPath($directory);
 
         $files = glob(rtrim($dir, '/') . '/Version*.php');
-        if ($files === false) {
-            $files = [];
-        }
 
         return $this->loadMigrations($files, $namespace);
     }

@@ -1,6 +1,36 @@
 CHANGELOG
 =========
 
+6.0
+---
+
+ * Remove `DoctrineTestHelper` and `TestRepositoryFactory`
+
+5.4
+---
+
+ * Add `DoctrineOpenTransactionLoggerMiddleware` to log when a transaction has been left open
+ * Deprecate `PdoCacheAdapterDoctrineSchemaSubscriber` and add `DoctrineDbalCacheAdapterSchemaSubscriber` instead
+ * `UniqueEntity` constraint retrieves a maximum of two entities if the default repository method is used.
+ * Add support for the newer bundle structure to `AbstractDoctrineExtension::loadMappingInformation()`
+ * Add argument `$bundleDir` to `AbstractDoctrineExtension::getMappingDriverBundleConfigDefaults()`
+ * Add argument `$bundleDir` to `AbstractDoctrineExtension::getMappingResourceConfigDirectory()`
+
+5.3
+---
+
+ * Deprecate `UserLoaderInterface::loadUserByUsername()` in favor of `UserLoaderInterface::loadUserByIdentifier()
+ * Deprecate `DoctrineTestHelper` and `TestRepositoryFactory`
+ * [BC BREAK] Remove `UuidV*Generator` classes
+ * Add `UuidGenerator`
+ * Add support for the new security-core `TokenVerifierInterface` in `DoctrineTokenProvider`, fixing parallel requests handling in remember-me
+
+5.2.0
+-----
+
+ * added support for symfony/uid as `UlidType` and `UuidType` as Doctrine types
+ * added `UlidGenerator`, `UuidV1Generator`, `UuidV4Generator` and `UuidV6Generator`
+
 5.0.0
 -----
 

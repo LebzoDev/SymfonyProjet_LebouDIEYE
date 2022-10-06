@@ -1,3 +1,4 @@
+
 # Templates
 
 This document will describe how pagination can be rendered, extended and used in
@@ -15,32 +16,40 @@ This way it will override it globally for all default pagination rendering.
 You can override templates in [configuration of
 paginator](http://github.com/KnpLabs/KnpPaginatorBundle/blob/master/README.md#configuration)
 
-Or place this parameter in **app/config/parameters.yml**
+Or place this parameter in **config/packages/knp_paginator.yaml**
 
-    knp_paginator.template.pagination: MyBundle:Pagination:pagination.html.twig
+    knp_paginator.template.pagination: my_pagination.html.twig
 
 Same for sorting link template:
 
-    knp_paginator.template.sortable:   MyBundle:Pagination:sortable.html.twig
+    knp_paginator.template.sortable: my_sortable.html.twig
 
 ### Directly in pagination
 
 ``` php
 $paginator = $this->get('knp_paginator');
 $pagination = $paginator->paginate($target, $page);
-$pagination->setTemplate('MyBundle:Pagination:pagination.html.twig');
-$pagination->setSortableTemplate('MyBundle:Pagination:sortable.html.twig');
+$pagination->setTemplate('my_pagination.html.twig');
+$pagination->setSortableTemplate('my_sortable.html.twig');
 ```
 
 or in view
 
 ``` html
-{% do pagination.setTemplate('MyBundle:Pagination:pagination.html.twig') %}
+{% do pagination.setTemplate('my_pagination.html.twig') %}
 ```
 
 ### In render method
 
-{{ knp_pagination_render(pagination, 'MyBundle:Pagination:pagination.html.twig') }}
+```twig
+{{ knp_pagination_render(pagination, 'my_pagination.html.twig') }}
+```
+
+or by specifying path to your custom template that is located under your project's `templates` directory:
+```twig
+{{ knp_pagination_sortable(pagination, 'date', 'c.publishedAt', {}, {}, 'KnpPaginator/Pagination/bootstrap_v4_sortable_link.html.twig') }}
+{{ knp_pagination_render(pagination, 'KnpPaginator/Pagination/bootstrap_v4_pagination.html.twig') }}
+```
 
 ## Other useful parameters
 
@@ -83,7 +92,7 @@ If you need custom parameters in pagination template, use:
 <?php
 // set an array of custom parameters
 $pagination->setCustomParameters([
-    'align' => 'center', # center|right (for template: twitter_bootstrap_v4_pagination)
+    'align' => 'center', # center|right (for template: twitter_bootstrap_v4_pagination and foundation_v6_pagination)
     'size' => 'large', # small|large (for template: twitter_bootstrap_v4_pagination)
     'style' => 'bottom',
     'span_class' => 'whatever',
@@ -184,14 +193,14 @@ Only include this lines and enjoy the pagination :
 ### Bulma
 
 You can configure the position, the size, and make the buttons rounded or not:
-- `position`: `'left'`, `'centered'`, or `'right'`. By default it's `'left'` 
+- `align`: `'left'`, `'center'`, or `'right'`. By default align is not modified
 - `size`: `'small'`, `'medium'`, or `'large'`. By default, size is not modified
 - `rounded`: `true` or `false`. By default it's `false`
 
 In your controller:
 ```php
 $pagination->setCustomParameters([
-    'position' => 'centered',
+    'align' => 'center',
     'size' => 'large',
     'rounded' => true,
 ]);
@@ -200,7 +209,7 @@ $pagination->setCustomParameters([
 or in the view:
 ```twig
 {{ knp_pagination_render(pagination, null, {}, {
-   'position': 'centered',
+   'align': 'center',
    'size': 'large',
    'rounded': true,
 }) }}

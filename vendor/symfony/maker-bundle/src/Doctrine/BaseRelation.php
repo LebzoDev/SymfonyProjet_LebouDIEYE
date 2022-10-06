@@ -19,41 +19,43 @@ abstract class BaseRelation
     private $propertyName;
     private $targetClassName;
     private $targetPropertyName;
+    private $customReturnType;
     private $isSelfReferencing = false;
     private $mapInverseRelation = true;
+    private $avoidSetter = false;
 
     abstract public function isOwning(): bool;
 
-    public function getPropertyName()
+    public function getPropertyName(): string
     {
         return $this->propertyName;
     }
 
-    public function setPropertyName($propertyName)
+    public function setPropertyName(string $propertyName): self
     {
         $this->propertyName = $propertyName;
 
         return $this;
     }
 
-    public function getTargetClassName()
+    public function getTargetClassName(): string
     {
         return $this->targetClassName;
     }
 
-    public function setTargetClassName($targetClassName)
+    public function setTargetClassName(string $targetClassName): self
     {
         $this->targetClassName = $targetClassName;
 
         return $this;
     }
 
-    public function getTargetPropertyName()
+    public function getTargetPropertyName(): ?string
     {
         return $this->targetPropertyName;
     }
 
-    public function setTargetPropertyName($targetPropertyName)
+    public function setTargetPropertyName(?string $targetPropertyName): self
     {
         $this->targetPropertyName = $targetPropertyName;
 
@@ -65,7 +67,7 @@ abstract class BaseRelation
         return $this->isSelfReferencing;
     }
 
-    public function setIsSelfReferencing(bool $isSelfReferencing)
+    public function setIsSelfReferencing(bool $isSelfReferencing): self
     {
         $this->isSelfReferencing = $isSelfReferencing;
 
@@ -77,9 +79,39 @@ abstract class BaseRelation
         return $this->mapInverseRelation;
     }
 
-    public function setMapInverseRelation(bool $mapInverseRelation)
+    public function setMapInverseRelation(bool $mapInverseRelation): self
     {
         $this->mapInverseRelation = $mapInverseRelation;
+
+        return $this;
+    }
+
+    public function shouldAvoidSetter(): bool
+    {
+        return $this->avoidSetter;
+    }
+
+    public function avoidSetter(bool $avoidSetter = true): self
+    {
+        $this->avoidSetter = $avoidSetter;
+
+        return $this;
+    }
+
+    public function getCustomReturnType(): ?string
+    {
+        return $this->customReturnType;
+    }
+
+    public function isCustomReturnTypeNullable(): bool
+    {
+        return $this->isCustomReturnTypeNullable;
+    }
+
+    public function setCustomReturnType(string $customReturnType, bool $isNullable)
+    {
+        $this->customReturnType = $customReturnType;
+        $this->isCustomReturnTypeNullable = $isNullable;
 
         return $this;
     }

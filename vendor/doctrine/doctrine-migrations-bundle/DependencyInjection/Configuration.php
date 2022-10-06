@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Doctrine\Bundle\MigrationsBundle\DependencyInjection;
 
 use ReflectionClass;
+use Symfony\Component\Config\Definition\BaseNode;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
-use function array_filter;
-use function array_keys;
+
 use function constant;
 use function count;
 use function in_array;
@@ -29,7 +29,7 @@ class Configuration implements ConfigurationInterface
      *
      * @return TreeBuilder The config tree builder
      */
-    public function getConfigTreeBuilder() : TreeBuilder
+    public function getConfigTreeBuilder(): TreeBuilder
     {
         $treeBuilder = new TreeBuilder('doctrine_migrations');
 
@@ -43,91 +43,81 @@ class Configuration implements ConfigurationInterface
         $organizeMigrationModes = $this->getOrganizeMigrationsModes();
 
         $rootNode
-            ->fixXmlConfig('migration', 'migrations')
-            ->fixXmlConfig('migrations_path', 'migrations_paths')
             ->children()
+                ->scalarNode('name')
+                    ->setDeprecated(...$this->getDeprecationParams('The "%node%" option is deprecated.'))
+                    ->defaultValue('Application Migrations')
+                ->end()
+
+                // 3.x forward compatibility layer
                 ->arrayNode('migrations_paths')
-                    ->info('A list of namespace/path pairs where to look for migrations.')
+                    ->info('A list of pairs namespace/path where to look for migrations.')
+                    ->useAttributeAsKey('name')
                     ->defaultValue([])
-                    ->useAttributeAsKey('namespace')
                     ->prototype('scalar')->end()
-                ->end()
-
-                ->arrayNode('services')
-                    ->info('A set of services to pass to the underlying doctrine/migrations library, allowing to change its behaviour.')
-                    ->useAttributeAsKey('service')
-                    ->defaultValue([])
                     ->validate()
-                        ->ifTrue(static function ($v) {
-                            return count(array_filter(array_keys($v), static function (string $doctrineService) : bool {
-                                return strpos($doctrineService, 'Doctrine\Migrations\\') !==0;
-                            }));
+                        ->ifTrue(static function ($v): bool {
+                            return count($v) === 0;
                         })
-                        ->thenInvalid('Valid services for the DoctrineMigrationsBundle must be in the "Doctrine\Migrations" namespace.')
-                    ->end()
-                    ->prototype('scalar')->end()
-                ->end()
+                        ->thenInvalid('At least one migration path must be specified.')
 
-                ->arrayNode('factories')
-                    ->info('A set of callables to pass to the underlying doctrine/migrations library as services, allowing to change its behaviour.')
-                    ->useAttributeAsKey('factory')
-                    ->defaultValue([])
-                    ->validate()
-                        ->ifTrue(static function ($v) {
-                            return count(array_filter(array_keys($v), static function (string $doctrineService) : bool {
-                                return strpos($doctrineService, 'Doctrine\Migrations\\') !==0;
-                            }));
+                        ->ifTrue(static function ($v): bool {
+                            return count($v) >  1;
                         })
-                        ->thenInvalid('Valid callables for the DoctrineMigrationsBundle must be in the "Doctrine\Migrations" namespace.')
+                        ->thenInvalid('Maximum one migration path can be specified with the 2.x version.')
                     ->end()
-                    ->prototype('scalar')->end()
                 ->end()
 
                 ->arrayNode('storage')
-                    ->addDefaultsIfNotSet()
                     ->info('Storage to use for migration status metadata.')
                     ->children()
                         ->arrayNode('table_storage')
-                            ->addDefaultsIfNotSet()
-                            ->info('The default metadata storage, implemented as a table in the database.')
+                            ->info('The default metadata storage, implemented as database table.')
                             ->children()
                                 ->scalarNode('table_name')->defaultValue(null)->cannotBeEmpty()->end()
                                 ->scalarNode('version_column_name')->defaultValue(null)->end()
-                                ->scalarNode('version_column_length')->defaultValue(null)->end()
+                                ->scalarNode('version_column_length')
+                                    ->defaultValue(null)
+                                    ->validate()
+                                        ->ifTrue(static function ($v): bool {
+                                            return $v < 1024;
+                                        })
+                                        ->thenInvalid('The minimum length for the version column is 1024.')
+                                    ->end()
+                                ->end()
                                 ->scalarNode('executed_at_column_name')->defaultValue(null)->end()
-                                ->scalarNode('execution_time_column_name')->defaultValue(null)->end()
                             ->end()
                         ->end()
                     ->end()
                 ->end()
 
-                ->arrayNode('migrations')
-                    ->info('A list of migrations to load in addition to the one discovered via "migrations_paths".')
-                    ->prototype('scalar')->end()
-                    ->defaultValue([])
+                ->scalarNode('dir_name')
+                    ->defaultValue('%kernel.root_dir%/DoctrineMigrations')->cannotBeEmpty()
+                    ->setDeprecated(...$this->getDeprecationParams('The "%node%" option is deprecated. Use "migrations_paths" instead.'))
                 ->end()
-                ->scalarNode('connection')
-                    ->info('Connection name to use for the migrations database.')
-                    ->defaultValue(null)
+                ->scalarNode('namespace')
+                    ->defaultValue('Application\Migrations')->cannotBeEmpty()
+                    ->setDeprecated(...$this->getDeprecationParams('The "%node%" option is deprecated. Use "migrations_paths" instead.'))
                 ->end()
-                ->scalarNode('em')
-                    ->info('Entity manager name to use for the migrations database (available when doctrine/orm is installed).')
-                    ->defaultValue(null)
+                ->scalarNode('table_name')
+                    ->defaultValue('migration_versions')->cannotBeEmpty()
+                    ->setDeprecated(...$this->getDeprecationParams('The "%node%" option is deprecated. Use "storage.table_storage.table_name" instead.'))
                 ->end()
-                ->scalarNode('all_or_nothing')
-                    ->info('Run all migrations in a transaction.')
-                    ->defaultValue(false)
+                ->scalarNode('column_name')
+                    ->defaultValue('version')
+                    ->setDeprecated(...$this->getDeprecationParams('The "%node%" option is deprecated. Use "storage.table_storage.version_column_name" instead.'))
                 ->end()
-                ->scalarNode('check_database_platform')
-                    ->info('Adds an extra check in the generated migrations to allow execution only on the same platform as they were initially generated on.')
-                    ->defaultValue(true)
+                ->scalarNode('column_length')
+                    ->defaultValue(14)
+                    ->setDeprecated(...$this->getDeprecationParams('The "%node%" option is deprecated. Use "storage.table_storage.version_column_length" instead.'))
                 ->end()
-                ->scalarNode('custom_template')
-                    ->info('Custom template path for generated migration classes.')
-                    ->defaultValue(null)
+                ->scalarNode('executed_at_column_name')
+                    ->defaultValue('executed_at')
+                    ->setDeprecated(...$this->getDeprecationParams('The "%node%" option is deprecated. Use "storage.table_storage.executed_at_column_name" instead.'))
                 ->end()
-                ->scalarNode('organize_migrations')
-                    ->defaultValue(false)
+                ->scalarNode('all_or_nothing')->defaultValue(false)->end()
+                ->scalarNode('custom_template')->defaultValue(null)->end()
+                ->scalarNode('organize_migrations')->defaultValue(false)
                     ->info('Organize migrations mode. Possible values are: "BY_YEAR", "BY_YEAR_AND_MONTH", false')
                     ->validate()
                         ->ifTrue(static function ($v) use ($organizeMigrationModes) {
@@ -135,11 +125,7 @@ class Configuration implements ConfigurationInterface
                                 return false;
                             }
 
-                            if (is_string($v) && in_array(strtoupper($v), $organizeMigrationModes, true)) {
-                                return false;
-                            }
-
-                            return true;
+                            return ! is_string($v) || ! in_array(strtoupper($v), $organizeMigrationModes);
                         })
                         ->thenInvalid('Invalid organize migrations mode value %s')
                     ->end()
@@ -155,13 +141,12 @@ class Configuration implements ConfigurationInterface
         return $treeBuilder;
     }
 
-
     /**
      * Find organize migrations modes for their names
      *
      * @return string[]
      */
-    private function getOrganizeMigrationsModes() : array
+    private function getOrganizeMigrationsModes(): array
     {
         $constPrefix = 'VERSIONS_ORGANIZATION_';
         $prefixLen   = strlen($constPrefix);
@@ -178,5 +163,28 @@ class Configuration implements ConfigurationInterface
         }
 
         return $namesArray;
+    }
+
+    /**
+     * Returns the correct deprecation params as an array for setDeprecated().
+     *
+     * symfony/config v5.1 introduces a deprecation notice when calling
+     * setDeprecated() with less than 3 args and the getDeprecation() method was
+     * introduced at the same time. By checking if getDeprecation() exists,
+     * we can determine the correct param count to use when calling setDeprecated().
+     *
+     * @return string[]
+     */
+    private function getDeprecationParams(string $message): array
+    {
+        if (method_exists(BaseNode::class, 'getDeprecation')) {
+            return [
+                'doctrine/doctrine-migrations-bundle',
+                '2.2',
+                $message,
+            ];
+        }
+
+        return [$message];
     }
 }

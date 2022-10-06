@@ -16,7 +16,6 @@ class DBALQueryBuilderSubscriber implements EventSubscriberInterface
     public function items(ItemsEvent $event): void
     {
         if ($event->target instanceof QueryBuilder) {
-            /** @var $target QueryBuilder */
             $target = $event->target;
         
             // count results
@@ -36,10 +35,8 @@ class DBALQueryBuilderSubscriber implements EventSubscriberInterface
                 ->from('(' . $sql . ')', 'dbal_count_tbl')
             ;
 
-            $event->count = $qb
-                ->execute()
-                ->fetchColumn(0)
-            ;
+            $compat = $qb->execute();
+            $event->count = method_exists($compat, 'fetchColumn') ? $compat->fetchColumn(0) : $compat->fetchOne();
 
             // if there is results
             $event->items = [];
@@ -63,7 +60,7 @@ class DBALQueryBuilderSubscriber implements EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         return [
-            'knp_pager.items' => ['items', 10 /*make sure to transform before any further modifications*/]
+            'knp_pager.items' => ['items', 10 /*make sure to transform before any further modifications*/],
         ];
     }
 }

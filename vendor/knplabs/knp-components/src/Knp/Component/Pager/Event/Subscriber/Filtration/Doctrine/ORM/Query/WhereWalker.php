@@ -2,6 +2,8 @@
 
 namespace Knp\Component\Pager\Event\Subscriber\Filtration\Doctrine\ORM\Query;
 
+use Doctrine\DBAL\Types\Types as Type;
+use Doctrine\ORM\Query\AST\Functions\LowerFunction;
 use Doctrine\ORM\Query\AST\ComparisonExpression;
 use Doctrine\ORM\Query\AST\ConditionalExpression;
 use Doctrine\ORM\Query\AST\ConditionalFactor;
@@ -24,25 +26,31 @@ class WhereWalker extends TreeWalkerAdapter
     /**
      * Filter key columns hint name
      */
-    const HINT_PAGINATOR_FILTER_COLUMNS = 'knp_paginator.filter.columns';
+    public const HINT_PAGINATOR_FILTER_COLUMNS = 'knp_paginator.filter.columns';
 
     /**
      * Filter value hint name
      */
-    const HINT_PAGINATOR_FILTER_VALUE = 'knp_paginator.filter.value';
+    public const HINT_PAGINATOR_FILTER_VALUE = 'knp_paginator.filter.value';
+
+    /**
+     * Filter strings in a case insensitive way
+     */
+    const HINT_PAGINATOR_FILTER_CASE_INSENSITIVE = 'knp_paginator.filter.case_insensitive';
 
     /**
      * Walks down a SelectStatement AST node, modifying it to
      * filter the query like requested by url
      *
      * @param  SelectStatement $AST
-     * @return void
+     * @return void|string
      */
-    public function walkSelectStatement(SelectStatement $AST): void
+    public function walkSelectStatement(SelectStatement $AST)
     {
         $query = $this->_getQuery();
         $queriedValue = $query->getHint(self::HINT_PAGINATOR_FILTER_VALUE);
         $columns = $query->getHint(self::HINT_PAGINATOR_FILTER_COLUMNS);
+        $filterCaseInsensitive = $query->getHint(self::HINT_PAGINATOR_FILTER_CASE_INSENSITIVE);
         $components = $this->_getQueryComponents();
         $filterExpressions = [];
         $expressions = [];
@@ -77,10 +85,34 @@ class WhereWalker extends TreeWalkerAdapter
                     continue;
                 }
                 unset($meta);
-            } elseif (is_numeric($queriedValue)) {
+            } elseif (is_numeric($queriedValue)
+                && (
+                    !isset($meta)
+                    || in_array(
+                        $meta['metadata']->getTypeOfField($field),
+                        [
+                            Type::SMALLINT,
+                            Type::INTEGER,
+                            Type::BIGINT,
+                            Type::FLOAT,
+                            Type::DECIMAL,
+                        ]
+                    )
+                )
+            ) {
                 $expression->simpleConditionalExpression = new ComparisonExpression($pathExpression, '=', new Literal(Literal::NUMERIC, $queriedValue));
             } else {
-                $expression->simpleConditionalExpression = new LikeExpression($pathExpression, new Literal(Literal::STRING, $queriedValue));
+                $likePathExpression = $pathExpression;
+                $likeQueriedValue = $queriedValue;
+
+                if ($filterCaseInsensitive) {
+                    $lower = new LowerFunction('lower');
+                    $lower->stringPrimary = $pathExpression;
+                    $likePathExpression = $lower;
+                    $likeQueriedValue = strtolower($queriedValue);
+                }
+
+                $expression->simpleConditionalExpression = new LikeExpression($likePathExpression, new Literal(Literal::STRING, $likeQueriedValue));
             }
             $filterExpressions[] = $expression->simpleConditionalExpression;
             $expressions[] = $expression;
@@ -212,7 +244,7 @@ class WhereWalker extends TreeWalkerAdapter
     }
 
     /**
-     * @param  Node               $node
+     * @param  ConditionalPrimary|ConditionalExpression $node
      * @return ConditionalPrimary
      */
     private function createPrimaryFromNode($node): ConditionalPrimary

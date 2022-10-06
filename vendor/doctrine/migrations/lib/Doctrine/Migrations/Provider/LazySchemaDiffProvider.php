@@ -16,25 +16,25 @@ use ProxyManager\Proxy\LazyLoadingInterface;
  *
  * @internal
  */
-class LazySchemaDiffProvider implements SchemaDiffProvider
+class LazySchemaDiffProvider implements SchemaDiffProviderInterface
 {
     /** @var LazyLoadingValueHolderFactory */
     private $proxyFactory;
 
-    /** @var SchemaDiffProvider */
+    /** @var SchemaDiffProviderInterface */
     private $originalSchemaManipulator;
 
     public function __construct(
         LazyLoadingValueHolderFactory $proxyFactory,
-        SchemaDiffProvider $originalSchemaManipulator
+        SchemaDiffProviderInterface $originalSchemaManipulator
     ) {
         $this->proxyFactory              = $proxyFactory;
         $this->originalSchemaManipulator = $originalSchemaManipulator;
     }
 
     public static function fromDefaultProxyFactoryConfiguration(
-        SchemaDiffProvider $originalSchemaManipulator
-    ) : LazySchemaDiffProvider {
+        SchemaDiffProviderInterface $originalSchemaManipulator
+    ): LazySchemaDiffProvider {
         $proxyConfig = new Configuration();
         $proxyConfig->setGeneratorStrategy(new EvaluatingGeneratorStrategy());
         $proxyFactory = new LazyLoadingValueHolderFactory($proxyConfig);
@@ -42,13 +42,13 @@ class LazySchemaDiffProvider implements SchemaDiffProvider
         return new LazySchemaDiffProvider($proxyFactory, $originalSchemaManipulator);
     }
 
-    public function createFromSchema() : Schema
+    public function createFromSchema(): Schema
     {
         $originalSchemaManipulator = $this->originalSchemaManipulator;
 
         return $this->proxyFactory->createProxy(
             Schema::class,
-            static function (&$wrappedObject, $proxy, $method, array $parameters, &$initializer) use ($originalSchemaManipulator) : bool {
+            static function (&$wrappedObject, $proxy, $method, array $parameters, &$initializer) use ($originalSchemaManipulator) {
                 $initializer = null;
 
                 $wrappedObject = $originalSchemaManipulator->createFromSchema();
@@ -58,14 +58,14 @@ class LazySchemaDiffProvider implements SchemaDiffProvider
         );
     }
 
-    public function createToSchema(Schema $fromSchema) : Schema
+    public function createToSchema(Schema $fromSchema): Schema
     {
         $originalSchemaManipulator = $this->originalSchemaManipulator;
 
         if ($fromSchema instanceof LazyLoadingInterface && ! $fromSchema->isProxyInitialized()) {
             return $this->proxyFactory->createProxy(
                 Schema::class,
-                static function (&$wrappedObject, $proxy, $method, array $parameters, &$initializer) use ($originalSchemaManipulator, $fromSchema) : bool {
+                static function (&$wrappedObject, $proxy, $method, array $parameters, &$initializer) use ($originalSchemaManipulator, $fromSchema) {
                     $initializer = null;
 
                     $wrappedObject = $originalSchemaManipulator->createToSchema($fromSchema);
@@ -79,10 +79,12 @@ class LazySchemaDiffProvider implements SchemaDiffProvider
     }
 
     /** @return string[] */
-    public function getSqlDiffToMigrate(Schema $fromSchema, Schema $toSchema) : array
+    public function getSqlDiffToMigrate(Schema $fromSchema, Schema $toSchema): array
     {
-        if ($toSchema instanceof LazyLoadingInterface
-            && ! $toSchema->isProxyInitialized()) {
+        if (
+            $toSchema instanceof LazyLoadingInterface
+            && ! $toSchema->isProxyInitialized()
+        ) {
             return [];
         }
 

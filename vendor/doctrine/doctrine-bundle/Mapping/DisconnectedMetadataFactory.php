@@ -10,6 +10,15 @@ use ReflectionClass;
 use RuntimeException;
 use Symfony\Component\HttpKernel\Bundle\BundleInterface;
 
+use function array_pop;
+use function class_exists;
+use function dirname;
+use function explode;
+use function implode;
+use function sprintf;
+use function str_replace;
+use function strpos;
+
 /**
  * This class provides methods to access Doctrine entity class metadata for a
  * given bundle, namespace or entity class, for generation purposes
@@ -19,9 +28,7 @@ class DisconnectedMetadataFactory
     /** @var ManagerRegistry */
     private $registry;
 
-    /**
-     * @param ManagerRegistry $registry A ManagerRegistry instance
-     */
+    /** @param ManagerRegistry $registry A ManagerRegistry instance */
     public function __construct(ManagerRegistry $registry)
     {
         $this->registry = $registry;
@@ -128,7 +135,7 @@ class DisconnectedMetadataFactory
      *
      * @throws RuntimeException When base path not found.
      */
-    private function getBasePathForClass(string $name, string $namespace, string $path) : string
+    private function getBasePathForClass(string $name, string $namespace, string $path): string
     {
         $namespace   = str_replace('\\', '/', $namespace);
         $search      = str_replace('\\', '/', $path);
@@ -141,7 +148,7 @@ class DisconnectedMetadataFactory
         return $destination;
     }
 
-    private function getMetadataForNamespace(string $namespace) : ClassMetadataCollection
+    private function getMetadataForNamespace(string $namespace): ClassMetadataCollection
     {
         $metadata = [];
         foreach ($this->getAllMetadata() as $m) {
@@ -155,7 +162,7 @@ class DisconnectedMetadataFactory
         return new ClassMetadataCollection($metadata);
     }
 
-    private function getMetadataForClass(string $entity) : ClassMetadataCollection
+    private function getMetadataForClass(string $entity): ClassMetadataCollection
     {
         foreach ($this->registry->getManagers() as $em) {
             $cmf = new DisconnectedClassMetadataFactory();
@@ -169,10 +176,8 @@ class DisconnectedMetadataFactory
         return new ClassMetadataCollection([]);
     }
 
-    /**
-     * @return ClassMetadata[]
-     */
-    private function getAllMetadata() : array
+    /** @return ClassMetadata[] */
+    private function getAllMetadata(): array
     {
         $metadata = [];
         foreach ($this->registry->getManagers() as $em) {

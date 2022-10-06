@@ -22,7 +22,7 @@ class SolariumQuerySubscriber implements EventSubscriberInterface
                 $query->setStart($event->getOffset())->setRows($event->getLimit());
                 $solrResult = $client->select($query);
 
-                $event->items  = $solrResult->getIterator();
+                $event->items  = iterator_to_array($solrResult->getIterator());
                 $event->count  = $solrResult->getNumFound();
                 $event->setCustomPaginationParameter('result', $solrResult);
                 $event->stopPropagation();
@@ -33,7 +33,7 @@ class SolariumQuerySubscriber implements EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         return [
-            'knp_pager.items' => ['items', 0] /* triggers before a standard array subscriber*/
+            'knp_pager.items' => ['items', 0], /* triggers before a standard array subscriber*/
         ];
     }
 }

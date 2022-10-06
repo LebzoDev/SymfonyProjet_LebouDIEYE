@@ -6,10 +6,14 @@ namespace Doctrine\Migrations\Tools\Console\Helper;
 
 use Doctrine\Migrations\Configuration\Configuration;
 use Doctrine\Migrations\Tools\Console\Exception\DirectoryDoesNotExist;
+
+use function assert;
 use function date;
 use function file_exists;
+use function getcwd;
 use function mkdir;
 use function rtrim;
+
 use const DIRECTORY_SEPARATOR;
 
 /**
@@ -19,22 +23,35 @@ use const DIRECTORY_SEPARATOR;
  */
 class MigrationDirectoryHelper
 {
+    /** @var Configuration */
+    private $configuration;
+
+    public function __construct(Configuration $configuration)
+    {
+        $this->configuration = $configuration;
+    }
+
     /**
      * @throws DirectoryDoesNotExist
      */
-    public function getMigrationDirectory(Configuration $configuration, string $dir) : string
+    public function getMigrationDirectory(): string
     {
+        $dir = $this->configuration->getMigrationsDirectory();
+        $dir = $dir ?? getcwd();
+
+        assert($dir !== false, 'Unable to determine current working directory.');
+
         $dir = rtrim($dir, '/');
 
         if (! file_exists($dir)) {
             throw DirectoryDoesNotExist::new($dir);
         }
 
-        if ($configuration->areMigrationsOrganizedByYear()) {
+        if ($this->configuration->areMigrationsOrganizedByYear()) {
             $dir .= $this->appendDir(date('Y'));
         }
 
-        if ($configuration->areMigrationsOrganizedByYearAndMonth()) {
+        if ($this->configuration->areMigrationsOrganizedByYearAndMonth()) {
             $dir .= $this->appendDir(date('m'));
         }
 
@@ -43,12 +60,12 @@ class MigrationDirectoryHelper
         return $dir;
     }
 
-    private function appendDir(string $dir) : string
+    private function appendDir(string $dir): string
     {
         return DIRECTORY_SEPARATOR . $dir;
     }
 
-    private function createDirIfNotExists(string $dir) : void
+    private function createDirIfNotExists(string $dir): void
     {
         if (file_exists($dir)) {
             return;

@@ -6,261 +6,68 @@ namespace Doctrine\Migrations;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\Migrations\Configuration\Configuration;
-use Doctrine\Migrations\Configuration\Connection\ConnectionLoader;
-use Doctrine\Migrations\Configuration\EntityManager\EntityManagerLoader;
-use Doctrine\Migrations\Configuration\Migration\ConfigurationLoader;
-use Doctrine\Migrations\Exception\FrozenDependencies;
-use Doctrine\Migrations\Exception\MissingDependency;
-use Doctrine\Migrations\Finder\GlobFinder;
-use Doctrine\Migrations\Finder\MigrationFinder;
 use Doctrine\Migrations\Finder\RecursiveRegexFinder;
-use Doctrine\Migrations\Generator\ClassNameGenerator;
-use Doctrine\Migrations\Generator\ConcatenationFileBuilder;
-use Doctrine\Migrations\Generator\DiffGenerator;
 use Doctrine\Migrations\Generator\FileBuilder;
 use Doctrine\Migrations\Generator\Generator;
 use Doctrine\Migrations\Generator\SqlGenerator;
-use Doctrine\Migrations\Metadata\Storage\MetadataStorage;
-use Doctrine\Migrations\Metadata\Storage\TableMetadataStorage;
-use Doctrine\Migrations\Metadata\Storage\TableMetadataStorageConfiguration;
-use Doctrine\Migrations\Provider\DBALSchemaDiffProvider;
 use Doctrine\Migrations\Provider\LazySchemaDiffProvider;
-use Doctrine\Migrations\Provider\OrmSchemaProvider;
 use Doctrine\Migrations\Provider\SchemaDiffProvider;
-use Doctrine\Migrations\Provider\SchemaProvider;
-use Doctrine\Migrations\Tools\Console\ConsoleInputMigratorConfigurationFactory;
+use Doctrine\Migrations\Provider\SchemaDiffProviderInterface;
 use Doctrine\Migrations\Tools\Console\Helper\MigrationStatusInfosHelper;
-use Doctrine\Migrations\Tools\Console\MigratorConfigurationFactory;
+use Doctrine\Migrations\Tracking\TableDefinition;
+use Doctrine\Migrations\Tracking\TableManipulator;
+use Doctrine\Migrations\Tracking\TableStatus;
+use Doctrine\Migrations\Tracking\TableUpdater;
 use Doctrine\Migrations\Version\AliasResolver;
-use Doctrine\Migrations\Version\AlphabeticalComparator;
-use Doctrine\Migrations\Version\Comparator;
-use Doctrine\Migrations\Version\CurrentMigrationStatusCalculator;
-use Doctrine\Migrations\Version\DbalExecutor;
-use Doctrine\Migrations\Version\DbalMigrationFactory;
-use Doctrine\Migrations\Version\DefaultAliasResolver;
 use Doctrine\Migrations\Version\Executor;
-use Doctrine\Migrations\Version\MigrationFactory;
-use Doctrine\Migrations\Version\MigrationPlanCalculator;
-use Doctrine\Migrations\Version\MigrationStatusCalculator;
-use Doctrine\Migrations\Version\SortedMigrationPlanCalculator;
-use Doctrine\ORM\EntityManagerInterface;
-use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
-use Symfony\Component\Stopwatch\Stopwatch;
-use function array_key_exists;
-use function call_user_func;
-use function preg_quote;
-use function sprintf;
+use Doctrine\Migrations\Version\Factory;
+use Symfony\Component\Stopwatch\Stopwatch as SymfonyStopwatch;
 
 /**
- * The DependencyFactory is responsible for wiring up and managing internal class dependencies.
+ * The DepenencyFactory is responsible for wiring up and managing internal class dependencies.
+ *
+ * @internal
  */
 class DependencyFactory
 {
     /** @var Configuration */
     private $configuration;
 
-    /** @var object[]|callable[] */
+    /** @var object[] */
     private $dependencies = [];
 
-    /** @var Connection */
-    private $connection;
-
-    /** @var EntityManagerInterface|null */
-    private $em;
-
-    /** @var bool */
-    private $frozen = false;
-
-    /** @var ConfigurationLoader */
-    private $configurationLoader;
-
-    /** @var ConnectionLoader */
-    private $connectionLoader;
-
-    /** @var EntityManagerLoader|null */
-    private $emLoader;
-
-    /** @var callable[] */
-    private $factories = [];
-
-    public static function fromConnection(
-        ConfigurationLoader $configurationLoader,
-        ConnectionLoader $connectionLoader,
-        ?LoggerInterface $logger = null
-    ) : self {
-        $dependencyFactory                      = new self($logger);
-        $dependencyFactory->configurationLoader = $configurationLoader;
-        $dependencyFactory->connectionLoader    = $connectionLoader;
-
-        return $dependencyFactory;
-    }
-
-    public static function fromEntityManager(
-        ConfigurationLoader $configurationLoader,
-        EntityManagerLoader $emLoader,
-        ?LoggerInterface $logger = null
-    ) : self {
-        $dependencyFactory                      = new self($logger);
-        $dependencyFactory->configurationLoader = $configurationLoader;
-        $dependencyFactory->emLoader            = $emLoader;
-
-        return $dependencyFactory;
-    }
-
-    private function __construct(?LoggerInterface $logger)
+    public function __construct(Configuration $configuration)
     {
-        if ($logger === null) {
-            return;
-        }
-
-        $this->setDefinition(LoggerInterface::class, static function () use ($logger) : LoggerInterface {
-            return $logger;
-        });
+        $this->configuration = $configuration;
     }
 
-    public function isFrozen() : bool
+    public function getEventDispatcher(): EventDispatcher
     {
-        return $this->frozen;
-    }
-
-    public function freeze() : void
-    {
-        $this->frozen = true;
-        $this->getConfiguration()->freeze();
-    }
-
-    private function assertNotFrozen() : void
-    {
-        if ($this->frozen) {
-            throw FrozenDependencies::new();
-        }
-    }
-
-    public function hasEntityManager() : bool
-    {
-        return $this->emLoader !== null;
-    }
-
-    public function setConfigurationLoader(ConfigurationLoader $configurationLoader) : void
-    {
-        $this->assertNotFrozen();
-        $this->configurationLoader = $configurationLoader;
-    }
-
-    public function getConfiguration() : Configuration
-    {
-        if ($this->configuration === null) {
-            $this->configuration = $this->configurationLoader->getConfiguration();
-            $this->freeze();
-        }
-
-        return $this->configuration;
-    }
-
-    public function getConnection() : Connection
-    {
-        if ($this->connection === null) {
-            $this->connection = $this->hasEntityManager()
-                ? $this->getEntityManager()->getConnection()
-                : $this->connectionLoader->getConnection();
-            $this->freeze();
-        }
-
-        return $this->connection;
-    }
-
-    public function getEntityManager() : EntityManagerInterface
-    {
-        if ($this->em === null) {
-            if ($this->emLoader === null) {
-                throw MissingDependency::noEntityManager();
-            }
-
-            $this->em = $this->emLoader->getEntityManager();
-            $this->freeze();
-        }
-
-        return $this->em;
-    }
-
-    public function getVersionComparator() : Comparator
-    {
-        return $this->getDependency(Comparator::class, static function () : AlphabeticalComparator {
-            return new AlphabeticalComparator();
-        });
-    }
-
-    public function getLogger() : LoggerInterface
-    {
-        return $this->getDependency(LoggerInterface::class, static function () : LoggerInterface {
-            return new NullLogger();
-        });
-    }
-
-    public function getEventDispatcher() : EventDispatcher
-    {
-        return $this->getDependency(EventDispatcher::class, function () : EventDispatcher {
+        return $this->getDependency(EventDispatcher::class, function (): EventDispatcher {
             return new EventDispatcher(
-                $this->getConnection(),
+                $this->configuration,
                 $this->getConnection()->getEventManager()
             );
         });
     }
 
-    public function getClassNameGenerator() : ClassNameGenerator
+    public function getSchemaDumper(): SchemaDumper
     {
-        return $this->getDependency(ClassNameGenerator::class, static function () : ClassNameGenerator {
-            return new ClassNameGenerator();
-        });
-    }
-
-    public function getSchemaDumper() : SchemaDumper
-    {
-        return $this->getDependency(SchemaDumper::class, function () : SchemaDumper {
-            $excludedTables = [];
-
-            $metadataConfig = $this->getConfiguration()->getMetadataStorageConfiguration();
-            if ($metadataConfig instanceof TableMetadataStorageConfiguration) {
-                $excludedTables[] = sprintf('/^%s$/', preg_quote($metadataConfig->getTableName(), '/'));
-            }
-
+        return $this->getDependency(SchemaDumper::class, function (): SchemaDumper {
             return new SchemaDumper(
                 $this->getConnection()->getDatabasePlatform(),
                 $this->getConnection()->getSchemaManager(),
-                $this->getMigrationGenerator(),
-                $this->getMigrationSqlGenerator(),
-                $excludedTables
-            );
-        });
-    }
-
-    private function getSchemaProvider() : SchemaProvider
-    {
-        return $this->getDependency(SchemaProvider::class, function () : SchemaProvider {
-            return new OrmSchemaProvider($this->getEntityManager());
-        });
-    }
-
-    public function getDiffGenerator() : DiffGenerator
-    {
-        return $this->getDependency(DiffGenerator::class, function () : DiffGenerator {
-            return new DiffGenerator(
-                $this->getConnection()->getConfiguration(),
-                $this->getConnection()->getSchemaManager(),
-                $this->getSchemaProvider(),
-                $this->getConnection()->getDatabasePlatform(),
                 $this->getMigrationGenerator(),
                 $this->getMigrationSqlGenerator()
             );
         });
     }
 
-    public function getSchemaDiffProvider() : SchemaDiffProvider
+    public function getSchemaDiffProvider(): SchemaDiffProviderInterface
     {
-        return $this->getDependency(SchemaDiffProvider::class, function () : LazySchemaDiffProvider {
+        return $this->getDependency(SchemaDiffProviderInterface::class, function (): LazySchemaDiffProvider {
             return LazySchemaDiffProvider::fromDefaultProxyFactoryConfiguration(
-                new DBALSchemaDiffProvider(
+                new SchemaDiffProvider(
                     $this->getConnection()->getSchemaManager(),
                     $this->getConnection()->getDatabasePlatform()
                 )
@@ -268,192 +75,193 @@ class DependencyFactory
         });
     }
 
-    private function getFileBuilder() : FileBuilder
+    public function getFileBuilder(): FileBuilder
     {
-        return $this->getDependency(FileBuilder::class, static function () : FileBuilder {
-            return new ConcatenationFileBuilder();
-        });
-    }
-
-    private function getParameterFormatter() : ParameterFormatter
-    {
-        return $this->getDependency(ParameterFormatter::class, function () : ParameterFormatter {
-            return new InlineParameterFormatter($this->getConnection());
-        });
-    }
-
-    public function getMigrationsFinder() : MigrationFinder
-    {
-        return $this->getDependency(MigrationFinder::class, function () : MigrationFinder {
-            $configs              = $this->getConfiguration();
-            $needsRecursiveFinder = $configs->areMigrationsOrganizedByYear() || $configs->areMigrationsOrganizedByYearAndMonth();
-
-            return $needsRecursiveFinder ? new RecursiveRegexFinder() : new GlobFinder();
-        });
-    }
-
-    public function getMigrationRepository() : MigrationsRepository
-    {
-        return $this->getDependency(MigrationsRepository::class, function () : MigrationsRepository {
-            return new FilesystemMigrationsRepository(
-                $this->getConfiguration()->getMigrationClasses(),
-                $this->getConfiguration()->getMigrationDirectories(),
-                $this->getMigrationsFinder(),
-                $this->getMigrationFactory()
+        return $this->getDependency(FileBuilder::class, function (): FileBuilder {
+            return new FileBuilder(
+                $this->getConnection()->getDatabasePlatform(),
+                $this->configuration->getMigrationsTableName(),
+                $this->configuration->getQuotedMigrationsColumnName(),
+                $this->configuration->getQuotedMigrationsExecutedAtColumnName()
             );
         });
     }
 
-    public function getMigrationFactory() : MigrationFactory
+    public function getParameterFormatter(): ParameterFormatterInterface
     {
-        return $this->getDependency(MigrationFactory::class, function () : MigrationFactory {
-            return new DbalMigrationFactory($this->getConnection(), $this->getLogger());
+        return $this->getDependency(ParameterFormatter::class, function (): ParameterFormatter {
+            return new ParameterFormatter($this->getConnection());
         });
     }
 
-    /**
-     * @param object|callable $service
-     */
-    public function setService(string $id, $service) : void
+    public function getMigrationRepository(): MigrationRepository
     {
-        $this->assertNotFrozen();
-        $this->dependencies[$id] = $service;
-    }
-
-    public function getMetadataStorage() : MetadataStorage
-    {
-        return $this->getDependency(MetadataStorage::class, function () : MetadataStorage {
-            return new TableMetadataStorage(
+        return $this->getDependency(MigrationRepository::class, function (): MigrationRepository {
+            return new MigrationRepository(
+                $this->configuration,
                 $this->getConnection(),
-                $this->getVersionComparator(),
-                $this->getConfiguration()->getMetadataStorageConfiguration(),
-                $this->getMigrationRepository()
+                $this->configuration->getMigrationsFinder(),
+                new Factory($this->configuration, $this->getVersionExecutor())
             );
         });
     }
 
-    private function getVersionExecutor() : Executor
+    public function getTrackingTableManipulator(): TableManipulator
     {
-        return $this->getDependency(Executor::class, function () : Executor {
-            return new DbalExecutor(
-                $this->getMetadataStorage(),
-                $this->getEventDispatcher(),
+        return $this->getDependency(TableManipulator::class, function (): TableManipulator {
+            return new TableManipulator(
+                $this->configuration,
+                $this->getConnection()->getSchemaManager(),
+                $this->getTrackingTableDefinition(),
+                $this->getTrackingTableStatus(),
+                $this->getTrackingTableUpdater()
+            );
+        });
+    }
+
+    public function getTrackingTableDefinition(): TableDefinition
+    {
+        return $this->getDependency(TableDefinition::class, function (): TableDefinition {
+            return new TableDefinition(
+                $this->getConnection()->getSchemaManager(),
+                $this->configuration->getMigrationsTableName(),
+                $this->configuration->getMigrationsColumnName(),
+                $this->configuration->getMigrationsColumnLength(),
+                $this->configuration->getMigrationsExecutedAtColumnName()
+            );
+        });
+    }
+
+    public function getTrackingTableStatus(): TableStatus
+    {
+        return $this->getDependency(TableStatus::class, function (): TableStatus {
+            return new TableStatus(
+                $this->getConnection()->getSchemaManager(),
+                $this->getTrackingTableDefinition()
+            );
+        });
+    }
+
+    public function getTrackingTableUpdater(): TableUpdater
+    {
+        return $this->getDependency(TableUpdater::class, function (): TableUpdater {
+            return new TableUpdater(
+                $this->getConnection(),
+                $this->getConnection()->getSchemaManager(),
+                $this->getTrackingTableDefinition(),
+                $this->getConnection()->getDatabasePlatform()
+            );
+        });
+    }
+
+    public function getVersionExecutor(): Executor
+    {
+        return $this->getDependency(Executor::class, function (): Executor {
+            return new Executor(
+                $this->configuration,
                 $this->getConnection(),
                 $this->getSchemaDiffProvider(),
-                $this->getLogger(),
+                $this->getOutputWriter(),
                 $this->getParameterFormatter(),
                 $this->getStopwatch()
             );
         });
     }
 
-    public function getQueryWriter() : QueryWriter
+    public function getQueryWriter(): FileQueryWriter
     {
-        return $this->getDependency(QueryWriter::class, function () : QueryWriter {
+        return $this->getDependency(FileQueryWriter::class, function (): FileQueryWriter {
             return new FileQueryWriter(
-                $this->getFileBuilder(),
-                $this->getLogger()
+                $this->getOutputWriter(),
+                $this->getFileBuilder()
             );
         });
     }
 
-    public function getVersionAliasResolver() : AliasResolver
+    public function getOutputWriter(): OutputWriter
     {
-        return $this->getDependency(AliasResolver::class, function () : AliasResolver {
-            return new DefaultAliasResolver(
-                $this->getMigrationPlanCalculator(),
-                $this->getMetadataStorage(),
-                $this->getMigrationStatusCalculator()
+        return $this->getDependency(OutputWriter::class, static function (): OutputWriter {
+            return new OutputWriter();
+        });
+    }
+
+    public function getVersionAliasResolver(): AliasResolver
+    {
+        return $this->getDependency(AliasResolver::class, function (): AliasResolver {
+            return new AliasResolver(
+                $this->getMigrationRepository()
             );
         });
     }
 
-    public function getMigrationStatusCalculator() : MigrationStatusCalculator
+    public function getMigrationPlanCalculator(): MigrationPlanCalculator
     {
-        return $this->getDependency(MigrationStatusCalculator::class, function () : MigrationStatusCalculator {
-            return new CurrentMigrationStatusCalculator(
-                $this->getMigrationPlanCalculator(),
-                $this->getMetadataStorage()
-            );
+        return $this->getDependency(MigrationPlanCalculator::class, function (): MigrationPlanCalculator {
+            return new MigrationPlanCalculator($this->getMigrationRepository());
         });
     }
 
-    public function getMigrationPlanCalculator() : MigrationPlanCalculator
+    public function getRecursiveRegexFinder(): RecursiveRegexFinder
     {
-        return $this->getDependency(MigrationPlanCalculator::class, function () : MigrationPlanCalculator {
-            return new SortedMigrationPlanCalculator(
-                $this->getMigrationRepository(),
-                $this->getMetadataStorage(),
-                $this->getVersionComparator()
-            );
+        return $this->getDependency(RecursiveRegexFinder::class, static function (): RecursiveRegexFinder {
+            return new RecursiveRegexFinder();
         });
     }
 
-    public function getMigrationGenerator() : Generator
+    public function getMigrationGenerator(): Generator
     {
-        return $this->getDependency(Generator::class, function () : Generator {
-            return new Generator($this->getConfiguration());
+        return $this->getDependency(Generator::class, function (): Generator {
+            return new Generator($this->configuration);
         });
     }
 
-    public function getMigrationSqlGenerator() : SqlGenerator
+    public function getMigrationSqlGenerator(): SqlGenerator
     {
-        return $this->getDependency(SqlGenerator::class, function () : SqlGenerator {
+        return $this->getDependency(SqlGenerator::class, function (): SqlGenerator {
             return new SqlGenerator(
-                $this->getConfiguration(),
+                $this->configuration,
                 $this->getConnection()->getDatabasePlatform()
             );
         });
     }
 
-    public function getConsoleInputMigratorConfigurationFactory() : MigratorConfigurationFactory
+    public function getMigrationStatusInfosHelper(): MigrationStatusInfosHelper
     {
-        return $this->getDependency(MigratorConfigurationFactory::class, function () : MigratorConfigurationFactory {
-            return new ConsoleInputMigratorConfigurationFactory(
-                $this->getConfiguration()
-            );
-        });
-    }
-
-    public function getMigrationStatusInfosHelper() : MigrationStatusInfosHelper
-    {
-        return $this->getDependency(MigrationStatusInfosHelper::class, function () : MigrationStatusInfosHelper {
+        return $this->getDependency(MigrationStatusInfosHelper::class, function (): MigrationStatusInfosHelper {
             return new MigrationStatusInfosHelper(
-                $this->getConfiguration(),
-                $this->getConnection(),
-                $this->getVersionAliasResolver(),
-                $this->getMigrationPlanCalculator(),
-                $this->getMigrationStatusCalculator(),
-                $this->getMetadataStorage()
+                $this->configuration,
+                $this->getMigrationRepository()
             );
         });
     }
 
-    public function getMigrator() : Migrator
+    public function getMigrator(): Migrator
     {
-        return $this->getDependency(Migrator::class, function () : Migrator {
-            return new DbalMigrator(
-                $this->getConnection(),
-                $this->getEventDispatcher(),
-                $this->getVersionExecutor(),
-                $this->getLogger(),
+        return $this->getDependency(Migrator::class, function (): Migrator {
+            return new Migrator(
+                $this->configuration,
+                $this->getMigrationRepository(),
+                $this->getOutputWriter(),
                 $this->getStopwatch()
             );
         });
     }
 
-    public function getStopwatch() : Stopwatch
+    public function getStopwatch(): Stopwatch
     {
-        return $this->getDependency(Stopwatch::class, static function () : Stopwatch {
-            return new Stopwatch(true);
+        return $this->getDependency(Stopwatch::class, static function (): Stopwatch {
+            $symfonyStopwatch = new SymfonyStopwatch(true);
+
+            return new Stopwatch($symfonyStopwatch);
         });
     }
 
-    public function getRollup() : Rollup
+    public function getRollup(): Rollup
     {
-        return $this->getDependency(Rollup::class, function () : Rollup {
+        return $this->getDependency(Rollup::class, function (): Rollup {
             return new Rollup(
-                $this->getMetadataStorage(),
+                $this->configuration,
+                $this->getConnection(),
                 $this->getMigrationRepository()
             );
         });
@@ -462,22 +270,17 @@ class DependencyFactory
     /**
      * @return mixed
      */
-    private function getDependency(string $id, callable $callback)
+    private function getDependency(string $className, callable $callback)
     {
-        if (array_key_exists($id, $this->factories) && ! array_key_exists($id, $this->dependencies)) {
-            $this->dependencies[$id] = call_user_func($this->factories[$id], $this);
+        if (! isset($this->dependencies[$className])) {
+            $this->dependencies[$className] = $callback();
         }
 
-        if (! array_key_exists($id, $this->dependencies)) {
-            $this->dependencies[$id] = $callback();
-        }
-
-        return $this->dependencies[$id];
+        return $this->dependencies[$className];
     }
 
-    public function setDefinition(string $id, callable $service) : void
+    private function getConnection(): Connection
     {
-        $this->assertNotFrozen();
-        $this->factories[$id] = $service;
+        return $this->configuration->getConnection();
     }
 }

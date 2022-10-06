@@ -75,7 +75,7 @@ class ParallelDownloader extends RemoteFilesystem
 
             $note = '';
             if ($this->io->isDecorated()) {
-                $note = '\\' === \DIRECTORY_SEPARATOR ? '' : (false !== stripos(PHP_OS, 'darwin') ? '🎵' : '🎶');
+                $note = '\\' === \DIRECTORY_SEPARATOR ? '' : (false !== stripos(\PHP_OS, 'darwin') ? '🎵' : '🎶');
                 $note .= $this->downloader ? ('\\' !== \DIRECTORY_SEPARATOR ? ' 💨' : '') : '';
             }
 
@@ -103,7 +103,7 @@ class ParallelDownloader extends RemoteFilesystem
         }
     }
 
-    public function getOptions()
+    public function getOptions(): array
     {
         $options = array_replace_recursive(parent::getOptions(), $this->nextOptions);
         $this->nextOptions = [];
@@ -121,7 +121,7 @@ class ParallelDownloader extends RemoteFilesystem
     /**
      * {@inheritdoc}
      */
-    public function getLastHeaders()
+    public function getLastHeaders(): array
     {
         return $this->lastHeaders ?? parent::getLastHeaders();
     }
@@ -156,9 +156,9 @@ class ParallelDownloader extends RemoteFilesystem
     /**
      * @internal
      */
-    public function callbackGet($notificationCode, $severity, $message, $messageCode, $bytesTransferred, $bytesMax, $nativeDownload = true)
+    public function callbackGet($notificationCode, $severity, $message, $messageCode, $bytesTransferred, $bytesMax, $nativeDownload = true): void
     {
-        if (!$nativeDownload && STREAM_NOTIFY_SEVERITY_ERR === $severity) {
+        if (!$nativeDownload && \STREAM_NOTIFY_SEVERITY_ERR === $severity) {
             throw new TransportException($message, $messageCode);
         }
 
@@ -168,12 +168,12 @@ class ParallelDownloader extends RemoteFilesystem
             return;
         }
 
-        if (STREAM_NOTIFY_FILE_SIZE_IS === $notificationCode) {
+        if (\STREAM_NOTIFY_FILE_SIZE_IS === $notificationCode) {
             ++$state->bytesMaxCount;
             $state->bytesMax += $bytesMax;
         }
 
-        if (!$bytesMax || STREAM_NOTIFY_PROGRESS !== $notificationCode) {
+        if (!$bytesMax || \STREAM_NOTIFY_PROGRESS !== $notificationCode) {
             if ($state->nextArgs && !$nativeDownload) {
                 $this->getNext();
             }
@@ -216,7 +216,7 @@ class ParallelDownloader extends RemoteFilesystem
     /**
      * {@inheritdoc}
      */
-    protected function getRemoteContents($originUrl, $fileUrl, $context, array &$responseHeaders = null)
+    protected function getRemoteContents($originUrl, $fileUrl, $context, array &$responseHeaders = null, $maxFileSize = null)
     {
         if (isset(self::$cache[$fileUrl])) {
             self::$cacheNext = false;
@@ -234,7 +234,7 @@ class ParallelDownloader extends RemoteFilesystem
             self::$cacheNext = false;
 
             if (3 < \func_num_args()) {
-                $result = $this->getRemoteContents($originUrl, $fileUrl, $context, $responseHeaders);
+                $result = $this->getRemoteContents($originUrl, $fileUrl, $context, $responseHeaders, $maxFileSize);
                 self::$cache[$fileUrl] = [$responseHeaders, $result];
             } else {
                 $result = $this->getRemoteContents($originUrl, $fileUrl, $context);
@@ -245,7 +245,7 @@ class ParallelDownloader extends RemoteFilesystem
         }
 
         if (!$this->downloader || !preg_match('/^https?:/', $fileUrl)) {
-            return parent::getRemoteContents($originUrl, $fileUrl, $context, $responseHeaders);
+            return parent::getRemoteContents($originUrl, $fileUrl, $context, $responseHeaders, $maxFileSize);
         }
 
         try {
@@ -259,7 +259,7 @@ class ParallelDownloader extends RemoteFilesystem
         } catch (TransportException $e) {
             $this->io->writeError('Retrying download: '.$e->getMessage(), true, IOInterface::DEBUG);
 
-            return parent::getRemoteContents($originUrl, $fileUrl, $context, $responseHeaders);
+            return parent::getRemoteContents($originUrl, $fileUrl, $context, $responseHeaders, $maxFileSize);
         } catch (\Throwable $e) {
             $responseHeaders = [];
             throw $e;

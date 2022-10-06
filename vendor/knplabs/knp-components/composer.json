@@ -22,19 +22,22 @@
         }
     ],
     "require": {
-        "php": "^7.2",
-        "symfony/event-dispatcher": "^3.4 || ^4.0 || ^5.0",
-        "symfony/http-foundation": "^3.4 || ^4.0 || ^5.0"
+        "php": "^7.4 || ^8.0",
+        "symfony/event-dispatcher-contracts": "^2.0 || ^3.0",
+        "symfony/http-foundation": "^4.4 || ^5.4 || ^6.0"
     },
     "require-dev": {
+        "ext-pdo_sqlite": "*",
         "doctrine/mongodb-odm": "^2.0",
-        "doctrine/orm": "^2.5",
+        "doctrine/orm": "^2.7",
         "doctrine/phpcr-odm": "^1.2",
         "jackalope/jackalope-doctrine-dbal": "^1.2",
-        "phpunit/phpunit": "^8.0",
-        "ruflin/elastica": "^1.0",
-        "symfony/http-kernel": "^3.4 || ^4.0 || ^5.0",
-        "symfony/property-access": "^3.4 || ^4.0 || ^5.0"
+        "phpunit/phpunit": "^9.5",
+        "propel/propel1": "^1.7",
+        "ruflin/elastica": "^7.0",
+        "solarium/solarium": "^6.0",
+        "symfony/http-kernel": "^4.4 || ^5.4 || ^6.0",
+        "symfony/property-access": "^4.4 || ^5.4 || ^6.0"
     },
     "suggest": {
         "doctrine/common": "to allow usage pagination with Doctrine ArrayCollection",
@@ -46,9 +49,12 @@
         "solarium/solarium": "to allow usage pagination with Solarium Client",
         "symfony/property-access": "To allow sorting arrays"
     },
+    "conflict": {
+        "doctrine/dbal": "<2.10"
+    },
     "extra": {
         "branch-alias": {
-            "dev-master": "2.4.0-dev"
+            "dev-master": "3.x-dev"
         }
     },
     "autoload": {
